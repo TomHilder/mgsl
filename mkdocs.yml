@@ -8,15 +8,15 @@ theme:
   palette:
     # Dark mode
     - scheme: slate
-      primary: teal
-      accent: cyan
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
     # Light mode
     - scheme: default
-      primary: teal
-      accent: cyan
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -39,14 +39,24 @@ markdown_extensions:
   - toc:
       permalink: true
 
+extra_css:
+  - stylesheets/extra.css
+
 extra_javascript:
   - javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
 
 nav:
   - Home: index.md
+  - User guide: guide.md
   - API Reference:
     - api/overview.md
+    - api/likelihood.md
+    - api/sampling.md
+    - api/options.md
+    - api/state.md
+    - api/diagnostics.md
+    - api/nifty.md
   - Development:
     - roadmap.md
     - changelog.md

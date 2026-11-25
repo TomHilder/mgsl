@@ -6,7 +6,7 @@ readme = "README.md"
 license = "MIT"
 authors = [{ name = "Tom Hilder", email = "Thomas.Hilder@monash.edu" }]
 requires-python = ">=3.11"
-dependencies = ["jax>=0.4.31"]
+dependencies = ["jax>=0.7", "numpy>=1.26"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -33,9 +33,23 @@ fallback_version = "0.0.0"
 [tool.ruff]
 line-length = 99
 
+[tool.ruff.format]
+exclude = ["*.md"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: long-running tests (run with -m slow)",
+    "nifty: tests that need NIFTy.re",
+]
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+extraPaths = ["tests"]
+
+[tool.uv.sources]
+nifty = { path = "../nifty", editable = true }
 
 [dependency-groups]
 dev = [
@@ -43,4 +57,6 @@ dev = [
     "ruff>=0.17.2",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.26",
+    "nifty",
+    "scipy>=1.17.1",
 ]
