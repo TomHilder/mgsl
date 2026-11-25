@@ -43,7 +43,7 @@ class Likelihood:
     """A likelihood on a latent with a standard-normal prior.
 
     The latent ``x`` can be any pytree of real floating-point arrays. The prior on ``x`` is
-    always ``N(0, Id)``: a model with another prior is written in standardised (whitened)
+    always ``N(0, I)``: a model with another prior is written in standardised (whitened)
     coordinates. For example, a parameter ``z ~ N(m, L L^T)`` becomes ``z = m + L x``, and a
     positive parameter with a log-normal prior becomes ``exp(mu + s x)``; the forward model
     then starts from ``x``.
@@ -58,18 +58,18 @@ class Likelihood:
     log_likelihood : callable
         ``x -> log p(d | x)``, a scalar. Constants may be dropped.
     fisher : callable
-        ``(x, v) -> I(x) v``: the Fisher information of the likelihood with respect to the
-        latent, ``J^T F J`` (``J`` the Jacobian of the forward model, ``F`` the Fisher metric
-        of the noise model, e.g. ``diag(1 / sigma^2)`` for Gaussian noise), applied to a
-        tangent ``v`` with the structure of ``x``. Must not include the prior.
+        ``(x, v) -> J^T F J v``: the Fisher metric ``F`` of the noise model (e.g.
+        ``diag(1 / sigma^2)`` for Gaussian noise) pulled back to the latent by the Jacobian
+        ``J`` of the forward model, applied to a tangent ``v`` with the structure of ``x``.
+        Must not include the prior.
     fisher_sqrt : callable
-        ``(x, e) -> J^T F^{1/2} e`` for ``e`` with the structure of ``data_shape``, such that
-        ``fisher_sqrt(x, e)`` with ``e ~ N(0, I)`` has covariance ``I(x)``.
+        ``(x, z) -> J^T F^{1/2} z`` for ``z`` with the structure of ``data_shape``, such that
+        ``fisher_sqrt(x, z)`` with ``z ~ N(0, I)`` has covariance ``J^T F J``.
     data_shape : pytree of jax.ShapeDtypeStruct
-        Structure, shapes and dtypes of the ``e`` taken by ``fisher_sqrt`` (usually those of
+        Structure, shapes and dtypes of the ``z`` taken by ``fisher_sqrt`` (usually those of
         the data).
     fisher_operator : callable, optional
-        ``x -> (fmv, fsqrt)`` with ``fmv(v) = I(x) v`` and ``fsqrt(e) = J^T F^{1/2} e``. If
+        ``x -> (fmv, fsqrt)`` with ``fmv(v) = J^T F J v`` and ``fsqrt(z) = J^T F^{1/2} z``. If
         given, it is called once per solve and the returned functions are applied inside the
         solve, instead of ``fisher(x, .)`` and ``fisher_sqrt(x, .)``. Useful when linearising
         the model once is cheaper than re-evaluating it at every application; costs the memory
@@ -215,7 +215,7 @@ def gaussian(
         weight.
     linearize_once : bool
         If True, also provide ``fisher_operator``, so each solve linearises the forward model
-        once instead of at every application of the Fisher information.
+        once instead of at every application of ``J^T F J``.
 
     Returns
     -------
@@ -360,7 +360,7 @@ def check_likelihood(lik: Likelihood, x, key, n_dirs: int = 8, rtol: float | Non
     Raises
     ------
     ValueError
-        If a function returns the wrong structure or shape, the Fisher information is negative
+        If a function returns the wrong structure or shape, ``J^T F J`` is negative
         along some direction, ``fisher``, ``fisher_sqrt`` and ``fisher_operator`` (if given)
         disagree, or the Hessian of the log-likelihood has the opposite sign (e.g. a negative
         log-likelihood was passed).
@@ -436,13 +436,13 @@ def check_likelihood(lik: Likelihood, x, key, n_dirs: int = 8, rtol: float | Non
     ratio = float(c.sum() / a.sum()) if a.sum() > 0 else float("nan")
     if a.sum() > 0 and ratio < -0.5:
         raise ValueError(
-            "the Hessian of log_likelihood has the opposite sign to the Fisher information "
+            "the Hessian of log_likelihood has the opposite sign to J^T F J "
             f"(ratio {ratio:.3g}): log_likelihood is probably a negative log-likelihood "
             "(e.g. NIFTy.re's energy)"
         )
     if a.sum() > 0 and not 2 / 3 <= ratio <= 1.5:
         warnings.warn(
-            f"the Hessian of log_likelihood is {ratio:.3g} times the Fisher information along "
+            f"the Hessian of log_likelihood is {ratio:.3g} times J^T F J along "
             "random directions (about 1 is expected near the data for a well-specified model). "
             "Check for missing noise weights in fisher, a missing factor 1/2 in "
             "log_likelihood, or evaluate at a point closer to the posterior.",

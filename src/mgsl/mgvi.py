@@ -1,4 +1,4 @@
-"""Residual draws and MGVI fits of the localised posterior."""
+"""Residual draws and MGVI fits of the localising distribution."""
 
 from __future__ import annotations
 
@@ -321,7 +321,7 @@ def local_ess(fl: FlatLikelihood, xbar, deltas, zetas, tau, y, valid):
 
 
 def local_fit(prob: Problem, key, xbar, tau, y, st: Static, rt: Runtime):
-    """MGVI fit of the localised posterior at ``(tau, y)`` from ``xbar``.
+    """MGVI fit of the localising distribution at ``(tau, y)`` from ``xbar``.
 
     Returns the centre, ``n_samples`` fresh residuals drawn at it (and their ``zeta``), and
     the fit's statistics.

@@ -3,19 +3,22 @@
 **mgsl** draws approximate posterior samples with Metric Gaussian Stochastic Localisation
 (MGSL), in JAX. It returns `n_paths` independent samples, one per localisation path.
 
-Each path follows an observation \(y_\tau = \tau X + B_\tau\) of the unknown \(X\), where
-\(B_\tau\) is a standard Brownian motion and the signal-to-noise ratio \(\tau\) grows until
-\(y_\tau / \tau\) pins \(X\) down. Given \(y_\tau\), the unknown has the *localised posterior*
-\(\pi_\tau(x \mid y) \propto p(x \mid \text{data})\, e^{\langle y, x\rangle - \tau |x|^2/2}\)
-(\(|x|\) the Euclidean norm). At every step mgsl approximates it by a Gaussian found with a
-matrix-free MGVI fit, and advances \(y\) as if \(X\) were drawn from that Gaussian. For a linear
-model with Gaussian noise this is exact; otherwise the samples carry the error of the local
-Gaussian fits, which shrinks as \(\tau\) grows.
+Each path follows the observation process
+\(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\) of the unknown \(\mathbf{X}\), where
+\(\mathbf{W}_\tau\) is a standard Brownian motion and the observation time \(\tau\) grows until
+\(\mathbf{Y}_\tau / \tau\) pins \(\mathbf{X}\) down. Given \(\mathbf{Y}_\tau = \mathbf{y}\), the
+unknown follows the *localising distribution*
+\(\pi_\tau(\mathbf{x} \mid \mathbf{y}) \propto p(\mathbf{x} \mid \mathbf{d})\,
+\mathcal N(\mathbf{y} \mid \tau \mathbf{x}, \tau \mathbf{I})\). At every step mgsl approximates it
+by a Gaussian found with a matrix-free MGVI fit, and advances \(\mathbf{y}\) as if
+\(\mathbf{X}\) were drawn from that Gaussian. For a linear model with Gaussian noise this is
+exact; otherwise the samples carry the error of the local Gaussian fits, which shrinks as
+\(\tau\) grows.
 
 The latent must have a standard-normal prior (write the model in whitened coordinates; see
 the [user guide](guide.md#describing-the-problem)), and the likelihood must provide its Fisher
-information as matrix-vector products. mgsl works with any JAX model, and with NIFTy.re
-models through an optional adaptor.
+metric, pulled back to the latent, as matrix-vector products. mgsl works with any JAX model,
+and with NIFTy.re models through an optional adaptor.
 
 ## Installation
 
@@ -44,7 +47,7 @@ A = jax.random.normal(jax.random.key(0), (n_data, n_latent))
 data = A @ jnp.ones(n_latent) + sigma * jax.random.normal(jax.random.key(1), (n_data,))
 
 
-def forward(x):  # latent x ~ N(0, Id) -> prediction of the data
+def forward(x):  # latent x ~ N(0, I) -> prediction of the data
     return A @ x
 
 
@@ -53,7 +56,7 @@ mgsl.check_likelihood(lik, jnp.zeros(n_latent), jax.random.key(2))  # raises if 
 
 options = mgsl.MGVIOptions(
     n_samples_mgvi=4,  # residual draws per local fit (each used with its mirror image)
-    n_iter_mgvi=1,  # rounds of (draw residuals, Newton) per localisation step
+    n_iter_mgvi=1,  # rounds of (draw residuals, Newton) per step
     newton=mgsl.NewtonOptions(maxiter=5),
 )
 

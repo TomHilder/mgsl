@@ -231,8 +231,9 @@ class MGVIOptions:
         Stopping rules of the CG solves that draw residuals.
     preconditioner : callable, optional
         ``preconditioner(x, tau)`` returning a function ``v -> M^{-1} v``, where ``M``
-        approximates the matrix the CG solves invert: ``(1 + tau) Id + I(x)`` (identity plus
-        Fisher information at the current centre ``x``). ``x`` and ``v`` are 1-D arrays of
+        approximates the matrix the CG solves invert, the precision metric
+        ``Lambda = (1 + tau) I + J^T F J`` at the current centre ``x`` (``J`` the Jacobian of the
+        forward model, ``F`` the Fisher metric of the noise model). ``x`` and ``v`` are 1-D arrays of
         length ``d``: the latent flattened as by ``jax.flatten_util.ravel_pytree``. It is
         called before every group of solves: once per round of residual draws and once per
         Newton step, so building it should be cheap compared with a solve. It may be a pytree

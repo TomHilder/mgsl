@@ -1,7 +1,7 @@
 """Metric Gaussian Stochastic Localisation (MGSL) in JAX.
 
 Posterior sampling by stochastic localisation, with the drift at each step from a matrix-free
-MGVI fit of the localised posterior.
+MGVI fit of the localising distribution.
 """
 
 from .diagnostics import CGStats, Failures, FitDiagnostics, MGSLDiagnostics

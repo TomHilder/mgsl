@@ -280,9 +280,9 @@ def init(
 ) -> SLState:
     """Start ``n_paths`` localisation paths at ``tau_start``.
 
-    Each path starts from ``y = tau_start (mu + delta) + sqrt(tau_start) xi``, with ``xi``
+    Each path starts from ``y = tau_start (mu + delta) + sqrt(tau_start) z``, with ``z``
     standard normal and ``delta ~ N(0, Lambda^{-1})`` a draw from the Gaussian approximation at
-    ``mu``, whose precision is ``Lambda = Id + I(mu)`` (identity plus Fisher information). Each
+    ``mu``, whose precision metric is ``Lambda = I + J^T F J`` at ``mu`` (see :func:`advance`). Each
     path's first local fit is warm-started at ``mu``. If ``N(mu, Lambda^{-1})`` were the exact
     posterior, ``y`` would follow the exact localisation process at ``tau_start``. Solver
     failures of these draws are reported by a warning.
@@ -373,12 +373,13 @@ def advance(
 ) -> tuple[SLState, Report]:
     """Advance every path of ``state`` along the grid ``taus``.
 
-    At each grid point ``tau`` the path's localised posterior is fitted by MGVI, warm-started
+    At each grid point ``tau`` the path's localising distribution is fitted by MGVI, warm-started
     from the previous centre. The fit is a Gaussian ``N(xbar, Lambda^{-1})`` with precision
-    ``Lambda = (1 + tau) Id + I(xbar)``. The observation then moves to the next grid point,
+    ``Lambda = (1 + tau) I + J^T F J`` at ``xbar`` (``J`` the Jacobian of the forward model,
+    ``F`` the Fisher metric of the noise model). The observation then moves to the next grid point,
     ``dtau`` later, as if the unknown were a draw from that Gaussian:
-    ``y += dtau (xbar + delta) + sqrt(dtau) xi``, with ``delta ~ N(0, Lambda^{-1})`` and
-    ``xi ~ N(0, Id)`` fresh for every step and path.
+    ``y += dtau (xbar + delta) + sqrt(dtau) z``, with ``delta ~ N(0, Lambda^{-1})`` and
+    ``z ~ N(0, I)`` fresh for every step and path.
 
     Each step is one compiled call (for all paths, or per batch), so the grid's length and
     values do not cause recompilation.
@@ -483,7 +484,7 @@ def finalize(
 ) -> tuple[Any, Report]:
     """Draw one sample per path from ``state``.
 
-    Fits each path's localised posterior at ``state.tau`` and returns ``xbar + delta``, with
+    Fits each path's localising distribution at ``state.tau`` and returns ``xbar + delta``, with
     ``xbar`` the fit's centre and ``delta ~ N(0, Lambda^{-1})`` a draw from it (see
     :func:`advance`). The state is not changed, so it can still be advanced further and
     finalised again. Samples of paths whose fit hit a non-finite log-likelihood are NaN.
@@ -588,7 +589,7 @@ def sample(
 
     Chains :func:`init` (at ``schedule.tau_start`` from centre ``mu``), :func:`advance` (over
     ``schedule.taus``) and :func:`finalize`. The samples are approximate: each step replaces
-    the localised posterior by a local Gaussian fit. For a linear model with Gaussian noise and
+    the localising distribution by a local Gaussian fit. For a linear model with Gaussian noise and
     converged solves they are exact.
 
     The run uses the dtype of ``mu`` (float64 needs ``jax_enable_x64``; float32 works, with

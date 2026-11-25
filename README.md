@@ -1,11 +1,11 @@
 # mgsl
 
 Metric Gaussian Stochastic Localisation (MGSL) in JAX: posterior sampling by stochastic
-localisation, with the drift at each step from a matrix-free MGVI fit of the localised posterior.
+localisation, with the drift at each step from a matrix-free MGVI fit of the localising distribution.
 
 Works with any JAX model whose latent has a standard-normal prior and whose likelihood provides
-its Fisher information as matrix-vector products; NIFTy.re models plug in through the optional
-`mgsl.nifty` adaptor.
+its Fisher metric (pulled back to the latent) as matrix-vector products; NIFTy.re models plug
+in through the optional `mgsl.nifty` adaptor.
 
 ```python
 from dataclasses import replace

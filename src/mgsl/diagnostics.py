@@ -165,7 +165,7 @@ _HINTS = {
     "draw_cg_capped": "residual draws stopped at draw_cg.maxiter; raise it (or precondition)",
     "newton_cg_capped": "Newton CG solves stopped at newton.cg.maxiter; usually harmless if "
     "the fits converge, otherwise raise it",
-    "cg_breakdowns": "CG stopped early: the Fisher information is not positive semi-definite, "
+    "cg_breakdowns": "CG stopped early: J^T F J is not positive semi-definite, "
     "the model returned NaN/inf, or the preconditioner is singular; run "
     "mgsl.check_likelihood",
     "sd_fallbacks": "Newton directions were replaced by gradient steps: the Fisher "
@@ -213,9 +213,9 @@ class FitDiagnostics(NamedTuple):
     ----------
     ess_fraction : array
         Effective sample size ``ESS`` of the fit's ``m = 2 n_samples_mgvi`` mirrored residuals
-        as importance samples of the localised posterior, rescaled to
+        as importance samples of the localising distribution, rescaled to
         ``(ESS - 1) / (m - 1)``: 1 means equal weights (the local Gaussian matches the
-        localised posterior at these points), 0 means one point carries all the weight. With
+        localising distribution at these points), 0 means one point carries all the weight. With
         few residuals it is a coarse check: deviations of the local Gaussian that the ``m``
         points do not probe go unseen. NaN where a residual's CG solve did not converge.
     newton_iter : array
@@ -246,9 +246,9 @@ class MGSLDiagnostics:
     Attributes
     ----------
     taus : numpy.ndarray
-        ``(n_steps,)``: the localisation time of each step's fit.
+        ``(n_steps,)``: the observation time of each step's fit.
     tau_end : float
-        Localisation time reached after the last step.
+        Observation time reached after the last step.
     ess_fraction : numpy.ndarray
         ``(n_paths, n_steps)``, see :class:`FitDiagnostics`. The local ESS fraction over tau,
         per path, is the main convergence diagnostic: it rises towards 1 once the local

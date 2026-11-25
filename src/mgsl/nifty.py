@@ -57,7 +57,7 @@ def from_likelihood(lh, **primals_kw) -> Likelihood:
 
     ``lh`` must be a likelihood whose primals are the latent with a standard-normal prior,
     usually ``likelihood.amend(model)`` for a NIFTy.re ``Model``. NIFTy.re's ``energy`` is the
-    negative log-likelihood, its ``metric`` the Fisher information and its
+    negative log-likelihood, its ``metric`` the Fisher metric pulled back to the latent (``J^T F J``) and its
     ``left_sqrt_metric`` the Fisher square root; they map onto ``log_likelihood``, ``fisher``
     and ``fisher_sqrt``.
 

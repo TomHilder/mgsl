@@ -20,7 +20,7 @@ FORMAT_VERSION = 1
 
 @dataclass(frozen=True)
 class SLState:
-    """State of a set of localisation paths at one localisation time.
+    """State of a set of localisation paths at one observation time.
 
     It holds everything needed to continue the paths: :func:`mgsl.advance` continues them and
     :func:`mgsl.finalize` draws samples from them. Random numbers are derived from the run's
@@ -81,7 +81,7 @@ def save_state(path: str | os.PathLike, state: SLState) -> None:
     """Save a state to an ``.npz`` file (written to a temporary file, then renamed, so an
     existing file is never left half-written).
 
-    The file stores the arrays, the localisation time and step, the key, and the latent's
+    The file stores the arrays, the observation time and step, the key, and the latent's
     structure, shapes and dtypes, which :func:`load_state` checks.
     """
     treedef, shapes, dtypes = _struct_meta(state.struct)
