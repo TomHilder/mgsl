@@ -200,7 +200,15 @@ def newton(prob: Problem, xbar, deltas, tau, y, st: Static, rt: Runtime):
         else:
             resnorm, ord_ = jnp.maximum(rt.ncg_tol * norm(g, 2), rt.ncg_atol), 2
         precond = prob.precond(x, tau) if prob.precond is not None else None
-        p, info = cg(mv, -g, y / shift - x, resnorm, rt.ncg_miniter, rt.ncg_maxiter, ord_, precond)
+        # start from the step with the likelihood dropped, unless zero has the smaller residual
+        # (near convergence the step is tiny and the likelihood-free guess is far off); keep the
+        # likelihood-free guess if its residual is not finite, since it is still a finite step
+        free = y / shift - x
+        r_free = -g - mv(free)
+        rn_free = jnp.sqrt(r_free @ r_free)
+        zero_better = jnp.isfinite(rn_free) & (rn_free >= jnp.sqrt(g @ g))
+        x0 = jnp.where(zero_better, jnp.zeros_like(free), free)
+        p, info = cg(mv, -g, x0, resnorm, rt.ncg_miniter, rt.ncg_maxiter, ord_, precond)
         res = relative_residual(mv, -g, p) if st.diagnostics else jnp.asarray(0.0, x.dtype)
         solves = solves.add(info, res)
 

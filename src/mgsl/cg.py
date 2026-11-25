@@ -34,7 +34,7 @@ def cg(
     """Solve ``matvec(x) = b`` from ``x0``.
 
     Stops once the norm of the (recurrence) residual is below ``resnorm`` after at least
-    ``miniter`` iterations, at ``maxiter`` iterations, on an exactly zero residual, or on a
+    ``miniter`` iterations (or earlier, once it is at rounding level), at ``maxiter`` iterations, on an exactly zero residual, or on a
     breakdown (``p^T A p <= 0`` for a non-zero direction, or non-finite values). The iterate
     stays finite in all of these cases.
     """
@@ -44,11 +44,14 @@ def cg(
     z0 = apply_m(r0)
     rz0 = r0 @ z0
     bad0 = ~jnp.isfinite(rz0)
+    # miniter is not honoured below rounding level: iterating on a residual that is pure rounding
+    # error makes the iterate diverge
+    floor = 10.0 * jnp.finfo(dtype).eps * norm(b, norm_ord)
 
     def cond(c):
         k, _, r, _, rz, stop = c
         rn = norm(r, norm_ord)
-        unconverged = (k < miniter) | (rn > resnorm)
+        unconverged = ((k < miniter) & (rn > floor)) | (rn > resnorm)
         return (k < maxiter) & unconverged & (rz != 0) & ~stop
 
     def body(c):

@@ -13,8 +13,7 @@
   Gaussian after a local transformation. MGSL assumes no family: it builds a global
   approximation out of many local Gaussian fits, one per step along each localisation path. It
   is designed for posteriors that are non-Gaussian beyond what a local transformation can
-  capture, such as the funnels formed by Gaussian-process hyperparameters when the data are
-  informative.
+  capture.
 - **Scales like MGVI.** Every fit is implicit and matrix-free: it never builds a dense
   covariance matrix, only Jacobian-vector products and conjugate-gradient solves with the Fisher
   metric, so it keeps all correlations between parameters (full rank) at a cost linear in the
@@ -70,11 +69,17 @@ For Gaussian noise, `mgsl.gaussian(forward, data, noise_std=..., mask=...)` buil
 zero weight and may hold NaN. For other noise models, write the four entries by hand, e.g.
 with `jax.jvp` and `jax.vjp` of the forward model.
 
-`mgsl.check_likelihood(lik, x, key)` checks that the functions agree with each other. It raises
-`ValueError` naming the problem: a negative log-likelihood passed as `log_likelihood`, a
-data-space Fisher matrix instead of \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\), a \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) that is not positive
-semi-definite, or wrong output shapes. It returns the quadratic forms it compared. Run it at
-zeros and near the posterior (e.g. at a fit's centre).
+When you write the functions by hand, check them with `mgsl.check_likelihood(lik, x, key)`.
+Along a few random directions (drawn with `key`) at the latent value `x`, it compares `fisher`
+with `fisher_sqrt` (which must agree exactly) and with the Hessian of `log_likelihood` (which
+should be close and must have the same sign). It raises `ValueError` naming the problem: a
+negative log-likelihood passed as `log_likelihood`, a data-space Fisher matrix instead of
+\(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\), a \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) that
+is not positive semi-definite, or wrong output shapes; it warns when the Hessian and
+\(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) differ by more than a factor 1.5, a sign of a missing
+weight or factor. It returns the quadratic forms it compared. Run it at zeros and near the
+posterior (e.g. at a fit's centre). Likelihoods from `mgsl.gaussian` and the NIFTy.re adaptor
+are consistent by construction.
 
 Arrays (and Python floats) held by a `Likelihood` through `jax.tree_util.Partial`, as
 `gaussian` does, are passed to compiled code at run time, so new data of the same shape does

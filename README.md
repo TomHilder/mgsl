@@ -19,8 +19,7 @@ in through the optional `mgsl.nifty` adaptor.
   Gaussian after a local transformation. MGSL assumes no family: it builds a global
   approximation out of many local Gaussian fits, one per step along each localisation path. It
   is designed for posteriors that are non-Gaussian beyond what a local transformation can
-  capture, such as the funnels formed by Gaussian-process hyperparameters when the data are
-  informative.
+  capture.
 - **Scales like MGVI.** Every fit is implicit and matrix-free: it never builds a dense
   covariance matrix, only Jacobian-vector products and conjugate-gradient solves with the Fisher
   metric, which keeps all correlations between parameters (full rank) at linear cost in the

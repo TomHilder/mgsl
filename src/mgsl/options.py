@@ -159,8 +159,9 @@ class NewtonOptions:
     The minimisation stops after ``maxiter`` steps, once the step taken has 1-norm
     ``<= xtol * d`` (``d`` the latent dimension), or once the objective decreased by less than
     ``absdelta``. Names, defaults and these stopping rules are those of NIFTy.re's Newton-CG.
-    Differences: the inner CG starts from the step that ignores the likelihood
-    (``y / (1 + tau) - x``) instead of zero, and stops on its residual only (NIFTy.re also
+    Differences: the inner CG starts from whichever of zero and the step that ignores the
+    likelihood (``y / (1 + tau) - x``) has the smaller residual (NIFTy.re starts from zero),
+    and stops on its residual only (NIFTy.re also
     stops it on the decrease of the CG objective), so it may take more iterations per
     solve.
 

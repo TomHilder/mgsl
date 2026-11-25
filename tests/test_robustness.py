@@ -287,3 +287,26 @@ def test_no_spurious_warnings_on_clean_runs():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         run(p.lik(), jnp.asarray(p.mean))
+
+
+def test_default_options_run_cleanly_on_a_nonlinear_problem():
+    """Default (NIFTy.re) solver settings, adaptive Newton CG included: no failures, and every
+    Newton solve ends with a residual no larger than its right-hand side."""
+    p = Nonlinear2D(b=2.0, sd=0.1)
+    lik = p.lik()
+    opts = mgsl.MGVIOptions(n_samples_mgvi=2, n_iter_mgvi=1, newton=mgsl.NewtonOptions(maxiter=5))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        from dataclasses import replace
+
+        fit = mgsl.mgvi_fit(jax.random.key(0), lik, jnp.zeros(2), replace(opts, n_iter_mgvi=10))
+        res = mgsl.sample(
+            jax.random.key(1),
+            lik,
+            fit.mean,
+            mgsl.Schedule(64, 1.0, 1e5, 16),
+            opts,
+            progress=False,
+        )
+    assert not res.failures.any(), res.failures.totals()
+    assert np.nanmax(res.diagnostics.cg_newton.max_rel_residual) <= 1.0

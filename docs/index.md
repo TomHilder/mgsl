@@ -52,7 +52,6 @@ def forward(x):  # latent x ~ N(0, I) -> prediction of the data
 
 
 lik = mgsl.gaussian(forward, data, noise_std=sigma)
-mgsl.check_likelihood(lik, jnp.zeros(n_latent), jax.random.key(2))  # raises if inconsistent
 
 options = mgsl.MGVIOptions(
     n_samples_mgvi=4,  # residual draws per local fit (each used with its mirror image)

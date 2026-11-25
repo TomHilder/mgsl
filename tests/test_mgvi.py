@@ -294,3 +294,21 @@ def test_nifty_line_search_matches_nifty_newton_cg(b, sd, start, zero_deltas):
         prob, st, rt = setup(lik, jnp.zeros(2), opts)
         x, _counts, _ = newton(prob, x0, deltas, tau, y, st, rt)
         np.testing.assert_allclose(x, ref, rtol=1e-8, atol=1e-10)
+
+
+def test_newton_cg_near_convergence_with_default_options():
+    """At an essentially converged centre the step is tiny; the inner CG must still solve for it
+    (not break down on an unreachable tolerance) with the default adaptive settings."""
+    p = LinGauss.make(d=6, n=9)
+    opts = mgsl.MGVIOptions(n_samples_mgvi=2, n_iter_mgvi=1, newton=mgsl.NewtonOptions(maxiter=3))
+    prob, st, rt = setup(p.lik(), jnp.zeros(6), opts)
+    tau, y = 3.0, jnp.asarray(np.linspace(-1, 1, 6))
+    deltas = jnp.asarray(np.random.default_rng(0).normal(size=(2, 6)) * 0.1)
+    x, _, solves = newton(
+        prob, jnp.asarray(p.local_mean(tau, np.asarray(y))), deltas, tau, y, st, rt
+    )
+    assert int(solves.breakdown) == 0 and int(solves.capped) == 0
+    # the true residual of the unpreconditioned system: a solver drifting on rounding noise can
+    # end with a garbage step without tripping the capped or breakdown flags
+    assert float(solves.max_res) < 1e-8
+    np.testing.assert_allclose(x, p.local_mean(tau, np.asarray(y)), rtol=1e-10, atol=1e-12)
