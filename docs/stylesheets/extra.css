@@ -1,0 +1,17 @@
+/* Theme colour: the blue of the matplotdrip colour cycle (#29ABCA), with dark text on it. */
+:root {
+  --md-primary-fg-color: #29abca;
+  --md-primary-fg-color--light: #5cc1da;
+  --md-primary-fg-color--dark: #1f8aa4;
+  --md-primary-bg-color: #10232a;
+  --md-primary-bg-color--light: #10232abb;
+  --md-accent-fg-color: #29abca;
+  --md-accent-fg-color--transparent: #29abca1a;
+}
+
+/* Light mode: the blue is too pale for link text on white, so links use a darker shade. */
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #1a7891;
+  --md-accent-fg-color: #1a7891;
+  --md-accent-fg-color--transparent: #1a78911a;
+}
