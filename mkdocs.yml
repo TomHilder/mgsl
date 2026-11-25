@@ -45,8 +45,15 @@ extra_javascript:
 
 nav:
   - Home: index.md
+  - User guide: guide.md
   - API Reference:
     - api/overview.md
+    - api/likelihood.md
+    - api/sampling.md
+    - api/options.md
+    - api/state.md
+    - api/diagnostics.md
+    - api/nifty.md
   - Development:
     - roadmap.md
     - changelog.md
