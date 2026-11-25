@@ -156,8 +156,7 @@ class NewtonOptions:
 
     Names and meanings follow NIFTy.re's Newton-CG: the minimisation stops after ``maxiter``
     steps, or once the step taken has 1-norm ``<= xtol * d``, or once the objective decreased by
-    less than ``absdelta``. The line search is a backtracking (Armijo) search with a
-    steepest-descent fallback, which differs from NIFTy.re's.
+    less than ``absdelta``.
 
     Parameters
     ----------
@@ -173,6 +172,16 @@ class NewtonOptions:
     adaptive_cg : bool
         If True (default, as NIFTy.re), the inner CG stops at a residual 1-norm of
         ``min(0.5, sqrt(|g|_1)) |g|_1`` for gradient ``g``, ignoring ``cg.tol`` and ``cg.atol``.
+    line_search : {"nifty", "armijo"}
+        ``"nifty"`` (default): NIFTy.re's line search. Steps 1, 1/2, 1/4, ... along the Newton
+        direction; the first that does not increase the objective is taken; after six failures
+        it restarts along the gradient (scaled by ``g.g / g.H.g``); after nine it gives up and
+        the centre stays put. ``absdelta`` only applies when fewer than two halvings were
+        needed, as in NIFTy.re.
+        ``"armijo"``: backtracking until the Armijo condition (constant 1e-4) holds, down to a
+        step of 1e-12; a CG direction that is not a descent direction (or not finite) is first
+        replaced by steepest descent capped at length ``sqrt(d)``; a step is kept only if the
+        objective decreased. This is the line search of the original MGSL implementation.
     """
 
     maxiter: int
@@ -180,8 +189,11 @@ class NewtonOptions:
     absdelta: float | None = None
     cg: CGOptions = field(default_factory=CGOptions)
     adaptive_cg: bool = True
+    line_search: str = "nifty"
 
     def __post_init__(self):
+        if self.line_search not in ("nifty", "armijo"):
+            raise ValueError(f"line_search must be 'nifty' or 'armijo', got {self.line_search!r}")
         object.__setattr__(self, "maxiter", _as_int("maxiter", self.maxiter, 1))
         object.__setattr__(self, "xtol", _as_float("xtol", self.xtol))
         if self.xtol < 0:

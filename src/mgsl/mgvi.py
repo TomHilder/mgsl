@@ -28,6 +28,7 @@ class Static(NamedTuple):
     n_samples: int
     n_iter: int
     adaptive_cg: bool
+    line_search: str
     has_absdelta: bool
     diagnostics: bool
     has_precond: bool
@@ -58,6 +59,7 @@ def split_options(options: MGVIOptions, d: int, dtype, diagnostics: bool):
         n_samples=options.n_samples_mgvi,
         n_iter=options.n_iter_mgvi,
         adaptive_cg=options.newton.adaptive_cg,
+        line_search=options.newton.line_search,
         has_absdelta=options.newton.absdelta is not None,
         diagnostics=diagnostics,
         has_precond=options.preconditioner is not None,
@@ -204,39 +206,24 @@ def newton(prob: Problem, xbar, deltas, tau, y, st: Static, rt: Runtime):
         res = relative_residual(mv, -g, p) if st.diagnostics else jnp.asarray(0.0, x.dtype)
         solves = solves.add(info, res)
 
-        slope = g @ p
-        bad = ~(jnp.isfinite(slope) & (slope < 0))
         gn = jnp.sqrt(g @ g)
         sd = -g * jnp.minimum(1.0, jnp.sqrt(d) / jnp.where(gn > 0, gn, 1.0))
-        p = jnp.where(bad, sd, p)
-        slope = jnp.where(bad, g @ sd, slope)
         tiny = 100.0 * eps * jnp.maximum(jnp.abs(val), 1.0)
-        significant = jnp.isfinite(slope) & (-slope > tiny)
-
-        def ls_cond(lc):
-            a, f = lc
-            return ~(f <= val + ARMIJO * a * slope) & (a > MIN_STEP)
-
-        def ls_body(lc):
-            a = 0.5 * lc[0]
-            return a, kl(x + a * p)
-
-        a0 = jnp.asarray(1.0, x.dtype)
-        a, f = lax.while_loop(ls_cond, ls_body, (a0, kl(x + p)))
-        accept = jnp.isfinite(f) & (f < val)
-        x_new = jnp.where(accept, x + a * p, x)
-        f_new = jnp.where(accept, f, val)
+        search = _armijo if st.line_search == "armijo" else _nifty_search
+        x_new, f_new, accept, fallback, significant, absdelta_ok = search(
+            kl, mv, x, val, g, p, sd, tiny
+        )
         decrease = val - f_new
-        step = jnp.where(accept, a * norm(p, 1), 0.0)
+        step = jnp.where(accept, norm(x_new - x, 1), 0.0)
 
         stop = ~accept | (step <= rt.xtol)
         if st.has_absdelta:
-            stop = stop | ((decrease >= 0) & (decrease < rt.absdelta))
+            stop = stop | ((decrease >= 0) & (decrease < rt.absdelta) & absdelta_ok)
+        finite = jnp.isfinite(val)
         counts = NewtonCounts(
             counts.iterations + 1,
-            counts.sd_fallbacks + (bad & significant & jnp.isfinite(val)).astype(jnp.int32),
-            counts.line_search_failures
-            + (~accept & significant & jnp.isfinite(val)).astype(jnp.int32),
+            counts.sd_fallbacks + (fallback & significant & finite).astype(jnp.int32),
+            counts.line_search_failures + (~accept & significant & finite).astype(jnp.int32),
             counts.nonfinite,
         )
         return i + 1, x_new, f_new, stop, counts, solves
@@ -246,6 +233,69 @@ def newton(prob: Problem, xbar, deltas, tau, y, st: Static, rt: Runtime):
     init = (jnp.asarray(0), xbar, val0, jnp.asarray(False), counts0, Solves.zero(xbar.dtype))
     _, x, _, _, counts, solves = lax.while_loop(cond, body, init)
     return x, counts, solves
+
+
+def _armijo(kl, mv, x, val, g, p, sd, tiny):
+    """Backtracking with the Armijo condition (constant 1e-4) from step 1, halving down to
+    MIN_STEP; a non-descent or non-finite CG direction is replaced by the capped steepest-descent
+    step ``sd`` first. A step is kept only if the objective decreased."""
+    slope = g @ p
+    bad = ~(jnp.isfinite(slope) & (slope < 0))
+    p = jnp.where(bad, sd, p)
+    slope = jnp.where(bad, g @ sd, slope)
+    significant = jnp.isfinite(slope) & (-slope > tiny)
+
+    def cond(c):
+        a, f = c
+        return ~(f <= val + ARMIJO * a * slope) & (a > MIN_STEP)
+
+    def body(c):
+        a = 0.5 * c[0]
+        return a, kl(x + a * p)
+
+    a, f = lax.while_loop(cond, body, (jnp.asarray(1.0, x.dtype), kl(x + p)))
+    accept = jnp.isfinite(f) & (f < val)
+    x_new = jnp.where(accept, x + a * p, x)
+    f_new = jnp.where(accept, f, val)
+    return x_new, f_new, accept, bad, significant, jnp.asarray(True)
+
+
+NIFTY_TRIES = 9  # step lengths tried by NIFTy.re's Newton-CG line search
+NIFTY_RESET = 5  # after this many failed halvings (counting from 0) it switches to a gradient step
+
+
+def _nifty_search(kl, mv, x, val, g, p, sd, tiny):
+    """NIFTy.re's Newton-CG line search: try steps 1, 1/2, 1/4, ... along the Newton direction
+    and accept the first that does not increase the objective; after six failures restart from
+    step 1 along the gradient, scaled by ``g.g / g.H.g`` (the capped steepest-descent step if
+    that curvature is not positive); give up (no step) after nine tries."""
+
+    def cond(c):
+        it, _, _, f, _ = c
+        return ~(f <= val) & (it < NIFTY_TRIES - 1)
+
+    def body(c):
+        it, a, q, _, reset = c
+
+        def to_gradient(_):
+            curv = g @ mv(g)
+            ok = jnp.isfinite(curv) & (curv > 0)
+            return jnp.where(ok, -(g @ g) / jnp.where(ok, curv, 1.0) * g, sd)
+
+        do_reset = it == NIFTY_RESET
+        q = lax.cond(do_reset, to_gradient, lambda _: q, None)
+        a = jnp.where(do_reset, 1.0, 0.5 * a)
+        return it + 1, a, q, kl(x + a * q), reset | do_reset
+
+    init = (jnp.asarray(0), jnp.asarray(1.0, x.dtype), p, kl(x + p), jnp.asarray(False))
+    it, a, q, f, reset = lax.while_loop(cond, body, init)
+    accept = jnp.isfinite(f) & (f <= val)
+    x_new = jnp.where(accept, x + a * q, x)
+    f_new = jnp.where(accept, f, val)
+    pred = g @ sd  # predicted decrease of a capped gradient step: is there anything to gain?
+    significant = jnp.isfinite(pred) & (-pred > tiny)
+    # NIFTy.re applies absdelta only when the line search needed fewer than two halvings
+    return x_new, f_new, accept, reset, significant, it < 2
 
 
 # --------------------------------------------------------------------------------------------
