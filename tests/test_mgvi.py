@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import jax
@@ -221,12 +222,12 @@ def test_newton_stopping_rules():
 
 def test_mgvi_fit_linear_gaussian():
     p = LinGauss.make(d=5, n=8)
-    fit = mgsl.mgvi_fit(jax.random.key(0), p.lik(), jnp.zeros(5), tight_options(), n_rounds=2)
+    fit = mgsl.mgvi_fit(jax.random.key(0), p.lik(), jnp.zeros(5), tight_options(n_iter=2))
     np.testing.assert_allclose(fit.mean, p.mean, rtol=1e-9)
     assert np.asarray(fit.residuals).shape == (2, 5)
     assert not fit.failures.any()
     pp = LinGaussPytree.make()
-    fitp = mgsl.mgvi_fit(jax.random.key(0), pp.lik(), pp.zeros(), tight_options(), n_rounds=2)
+    fitp = mgsl.mgvi_fit(jax.random.key(0), pp.lik(), pp.zeros(), tight_options(n_iter=2))
     np.testing.assert_allclose(LinGaussPytree.flat(fitp.mean), pp.base.mean, rtol=1e-9)
     assert fitp.residuals["a"].shape == (2, 2, 3)
 
@@ -240,7 +241,7 @@ def test_preconditioned_fit_is_unchanged():
         return lambda r: Minv @ r
 
     opts = tight_options(preconditioner=precond)
-    fit = mgsl.mgvi_fit(jax.random.key(0), p.lik(), jnp.zeros(6), opts, n_rounds=1)
+    fit = mgsl.mgvi_fit(jax.random.key(0), p.lik(), jnp.zeros(6), replace(opts, n_iter_mgvi=1))
     np.testing.assert_allclose(fit.mean, p.mean, rtol=1e-9)
     assert exact.shape == (6, 6)
 

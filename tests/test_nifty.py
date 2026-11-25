@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from dataclasses import replace
 from pathlib import Path
 
 import jax
@@ -73,7 +74,7 @@ def test_end_to_end_dict_and_vector_latents():
     lik = mgsl.nifty.from_likelihood(lh)
     zeros = jax.tree_util.tree_map(jnp.zeros_like, model.init(jax.random.key(0)))
     opts = tight_options()
-    fit = mgsl.mgvi_fit(jax.random.key(0), lik, zeros, opts, n_rounds=2)
+    fit = mgsl.mgvi_fit(jax.random.key(0), lik, zeros, replace(opts, n_iter_mgvi=2))
     sched = mgsl.Schedule(200, 1.0, 1e3, 4)
     res = mgsl.sample(jax.random.key(1), lik, fit.mean, sched, opts)
     assert set(res.samples) == {"a", "b"} and res.samples["a"].shape == (200, 2, 3)
@@ -139,7 +140,7 @@ def test_mgvi_fit_agrees_with_optimize_kl():
         sample_mode="linear_resample",
     )
     fit = mgsl.mgvi_fit(
-        jax.random.key(0), mgsl.nifty.from_likelihood(lh), zeros, tight_options(), n_rounds=2
+        jax.random.key(0), mgsl.nifty.from_likelihood(lh), zeros, tight_options(n_iter=2)
     )
     for k in ("a", "b"):
         np.testing.assert_allclose(fit.mean[k], samples.pos.tree[k], rtol=1e-6, atol=1e-8)

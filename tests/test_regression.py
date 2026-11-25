@@ -1,5 +1,6 @@
 """Regression checks: the original MGSL implementation's samples, and a large latent."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import jax
@@ -56,7 +57,7 @@ def test_large_latent_smoke():
     data = np.asarray(forward(jnp.asarray(rng.normal(size=d)))) + rng.normal(size=d)
     lik = mgsl.gaussian(forward, data, noise_std=1.0)
     opts = mgsl.MGVIOptions(n_samples_mgvi=2, n_iter_mgvi=1, newton=mgsl.NewtonOptions(maxiter=2))
-    fit = mgsl.mgvi_fit(jax.random.key(0), lik, jnp.zeros(d), opts, n_rounds=2)
+    fit = mgsl.mgvi_fit(jax.random.key(0), lik, jnp.zeros(d), replace(opts, n_iter_mgvi=2))
     res = mgsl.sample(
         jax.random.key(1), lik, fit.mean, mgsl.Schedule(8, 1.0, 1e3, 4), opts, batch_size=4
     )

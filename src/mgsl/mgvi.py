@@ -315,13 +315,12 @@ def local_ess(fl: FlatLikelihood, xbar, deltas, zetas, tau, y, valid):
     return jnp.where(valid & jnp.isfinite(ess), ess, jnp.nan)
 
 
-def local_fit(prob: Problem, key, xbar, tau, y, st: Static, rt: Runtime, n_rounds=None):
+def local_fit(prob: Problem, key, xbar, tau, y, st: Static, rt: Runtime):
     """MGVI fit of the localised posterior at ``(tau, y)`` from ``xbar``.
 
     Returns the centre, ``n_samples`` fresh residuals drawn at it (and their ``zeta``), and
     the fit's statistics.
     """
-    n_rounds = st.n_iter if n_rounds is None else n_rounds
     k_rounds, k_final = jax.random.split(key)
 
     def round_(carry, k):
@@ -333,7 +332,7 @@ def local_fit(prob: Problem, key, xbar, tau, y, st: Static, rt: Runtime, n_round
 
     init = (xbar, NewtonCounts.zero(), Solves.zero(xbar.dtype), Solves.zero(xbar.dtype))
     (xbar, counts, nsolves, dsolves), _ = lax.scan(
-        round_, init, jax.random.split(k_rounds, n_rounds)
+        round_, init, jax.random.split(k_rounds, st.n_iter)
     )
     deltas, zetas, fstats, valid = draw_residuals(prob, k_final, xbar, tau, st.n_samples, st, rt)
     dsolves = dsolves.merge(fstats)
@@ -369,23 +368,24 @@ class MGVIResult(NamedTuple):
     failures: Failures
 
 
-def _fit_impl(lik, precond, key, x0, st, rt, n_rounds, hstruct):
+def _fit_impl(lik, precond, key, x0, st, rt, hstruct):
     prob = make_problem(lik, precond, hstruct)
     zero = jnp.zeros_like(x0)
     tau = jnp.asarray(0.0, x0.dtype)
-    xbar, deltas, _, stats = local_fit(prob, key, x0, tau, zero, st, rt, n_rounds)
+    xbar, deltas, _, stats = local_fit(prob, key, x0, tau, zero, st, rt)
     return xbar, deltas, stats
 
 
-_fit_jit = jax.jit(_fit_impl, static_argnames=("st", "n_rounds", "hstruct"))
+_fit_jit = jax.jit(_fit_impl, static_argnames=("st", "hstruct"))
 
 
-def mgvi_fit(key, lik: Likelihood, x0, options: MGVIOptions, *, n_rounds: int) -> MGVIResult:
+def mgvi_fit(key, lik: Likelihood, x0, options: MGVIOptions) -> MGVIResult:
     """MGVI fit of the posterior (no localisation), e.g. to find the centre paths start from.
 
-    Each round draws ``options.n_samples_mgvi`` mirrored residuals at the current centre and
-    runs Newton-CG on the sample-averaged negative log posterior, with the settings in
-    ``options`` (``options.n_iter_mgvi`` is not used; ``n_rounds`` sets the number of rounds).
+    Runs ``options.n_iter_mgvi`` rounds; each draws ``options.n_samples_mgvi`` mirrored
+    residuals at the current centre and runs Newton-CG on the sample-averaged negative log
+    posterior. A fit of the full posterior from a cold start usually needs more rounds than the
+    warm-started fits inside a run, e.g. ``dataclasses.replace(options, n_iter_mgvi=10)``.
     Check convergence, e.g. by comparing the centre after more rounds.
 
     Parameters
@@ -395,23 +395,16 @@ def mgvi_fit(key, lik: Likelihood, x0, options: MGVIOptions, *, n_rounds: int) -
     x0 : pytree
         Starting centre (e.g. zeros, the prior mean).
     options : MGVIOptions
-    n_rounds : int
-        Number of rounds.
 
     Returns
     -------
     MGVIResult
     """
-    from .options import _as_int
-
-    n_rounds = _as_int("n_rounds", n_rounds, 1)
     struct = _tree.latent_struct(x0)
     ravel, unravel, d, dtype = _tree.make_unravel(struct)
     st, rt = split_options(options, d, dtype, diagnostics=False)
     pre = _Precond(options.preconditioner) if options.preconditioner is not None else None
-    xbar, deltas, stats = _fit_jit(
-        lik, pre, _key(key), ravel(x0), st, rt, n_rounds, HashableStruct(struct)
-    )
+    xbar, deltas, stats = _fit_jit(lik, pre, _key(key), ravel(x0), st, rt, HashableStruct(struct))
     failures = Failures.from_stats(jax.tree_util.tree_map(lambda a: a[None], stats))
     failures.warn("mgvi_fit")
     return MGVIResult(

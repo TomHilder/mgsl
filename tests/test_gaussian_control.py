@@ -49,7 +49,7 @@ def test_exact_samples(lin, n_tau, tau_start, n_samples, n_iter):
 
 def test_exact_samples_pytree():
     p = LinGaussPytree.make()
-    fit = mgsl.mgvi_fit(jax.random.key(0), p.lik(), p.zeros(), tight_options(), n_rounds=2)
+    fit = mgsl.mgvi_fit(jax.random.key(0), p.lik(), p.zeros(), tight_options(n_iter=2))
     res = run(p, fit.mean, 8, 1.0)
     assert res.samples["a"].shape == (N_PATHS, 2, 3) and res.samples["b"].shape == (N_PATHS, 4)
     x = LinGaussPytree.flat_batch(res.samples)

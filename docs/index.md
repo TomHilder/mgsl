@@ -26,6 +26,8 @@ Runtime dependency: JAX. NIFTy.re is only needed for `mgsl.nifty`.
 ```python
 import jax
 import jax.numpy as jnp
+from dataclasses import replace
+
 import mgsl
 
 jax.config.update("jax_enable_x64", True)  # recommended
@@ -43,7 +45,7 @@ options = mgsl.MGVIOptions(
 )
 
 # a centre to start the paths from: an MGVI fit of the posterior
-fit = mgsl.mgvi_fit(jax.random.key(1), lik, jnp.zeros(d), options, n_rounds=10)
+fit = mgsl.mgvi_fit(jax.random.key(1), lik, jnp.zeros(d), replace(options, n_iter_mgvi=10))
 
 schedule = mgsl.Schedule(n_paths=256, tau_start=1.0, tau_final=2e4, n_tau=64)
 result = mgsl.sample(jax.random.key(2), lik, fit.mean, schedule, options)

@@ -1,6 +1,7 @@
 """Resuming runs: exact chunking, finalize, saving and loading states."""
 
 import itertools
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -75,7 +76,7 @@ def test_finalize_does_not_change_state():
 def test_save_load_roundtrip(tmp_path):
     p = LinGaussPytree.make()
     lik, opts = p.lik(), tight_options()
-    fit = mgsl.mgvi_fit(jax.random.key(0), lik, p.zeros(), opts, n_rounds=2)
+    fit = mgsl.mgvi_fit(jax.random.key(0), lik, p.zeros(), replace(opts, n_iter_mgvi=2))
     res = mgsl.sample(jax.random.key(2), lik, fit.mean, mgsl.Schedule(5, 1.0, 50.0, 4), opts)
     path = tmp_path / "state.npz"
     mgsl.save_state(path, res.state)

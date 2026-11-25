@@ -4,6 +4,7 @@ import subprocess
 import sys
 import textwrap
 import warnings
+from dataclasses import replace
 from pathlib import Path
 
 import jax
@@ -139,7 +140,7 @@ def test_type_errors(lin):
     sched = mgsl.Schedule(4, 1.0, 1e3, 4)
     lik, opts = lin.lik(), tight_options()
     res = small(lin, n_paths=4)
-    fit = mgsl.mgvi_fit(jax.random.key(0), lik, jnp.zeros(6), opts, n_rounds=1)
+    fit = mgsl.mgvi_fit(jax.random.key(0), lik, jnp.zeros(6), replace(opts, n_iter_mgvi=1))
     with pytest.raises(TypeError, match="advance"):
         mgsl.sample(jax.random.key(0), lik, res.state, sched, opts)
     with pytest.raises(TypeError, match=r"\.mean"):

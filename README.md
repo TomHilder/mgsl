@@ -8,11 +8,13 @@ its Fisher information as matrix-vector products; NIFTy.re models plug in throug
 `mgsl.nifty` adaptor.
 
 ```python
+from dataclasses import replace
+
 import mgsl
 
 lik = mgsl.gaussian(forward, data, noise_std=sigma)
 options = mgsl.MGVIOptions(n_samples_mgvi=4, n_iter_mgvi=1, newton=mgsl.NewtonOptions(maxiter=5))
-fit = mgsl.mgvi_fit(key1, lik, x0, options, n_rounds=10)
+fit = mgsl.mgvi_fit(key1, lik, x0, replace(options, n_iter_mgvi=10))
 schedule = mgsl.Schedule(n_paths=256, tau_start=1.0, tau_final=2e4, n_tau=64)
 result = mgsl.sample(key2, lik, fit.mean, schedule, options)
 ```
