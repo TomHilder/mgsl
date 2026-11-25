@@ -111,7 +111,10 @@ class CGOptions:
 
     The solve stops once the residual 2-norm is below ``max(tol * |b|, atol)``, after at least
     ``miniter`` and at most ``maxiter`` iterations. Names and defaults are those of NIFTy.re's
-    conjugate gradients.
+    conjugate gradients. CG tracks its residual by a recurrence that drifts from the true
+    residual ``b - A x`` in floating point; the true residual is recomputed every ``refresh``
+    iterations and whenever the solve looks converged (one extra application of ``A`` each), so
+    convergence is always judged on the true residual.
 
     Parameters
     ----------
@@ -123,12 +126,18 @@ class CGOptions:
         Minimum number of iterations. Default ``min(6, maxiter)``.
     maxiter : int, optional
         Maximum number of iterations. Default ``min(200, 20 d)`` for a latent of dimension ``d``.
+    refresh : int, default 20
+        Iterations between recomputations of the true residual (NIFTy.re uses 20). Without
+        them, badly conditioned solves drift and can end far from the solution; but each refresh
+        also perturbs the CG recurrence, so refreshing very often (every few iterations) slows
+        convergence. Each refresh costs one extra application of ``A``.
     """
 
     tol: float = 1e-5
     atol: float = 0.0
     miniter: int | None = None
     maxiter: int | None = None
+    refresh: int = 20
 
     def __post_init__(self):
         object.__setattr__(self, "tol", _as_float("tol", self.tol))
@@ -139,6 +148,7 @@ class CGOptions:
             object.__setattr__(self, "miniter", _as_int("miniter", self.miniter, 0))
         if self.maxiter is not None:
             object.__setattr__(self, "maxiter", _as_int("maxiter", self.maxiter, 1))
+        object.__setattr__(self, "refresh", _as_int("refresh", self.refresh, 1))
 
     def resolve(self, size: int) -> tuple[int, int]:
         """``(miniter, maxiter)`` for a system of the given size, with NIFTy.re's fallbacks."""

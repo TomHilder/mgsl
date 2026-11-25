@@ -11,7 +11,7 @@ import numpy as np
 from jax import lax
 
 from . import _tree
-from .cg import cg, norm, relative_residual
+from .cg import cg, norm
 from .diagnostics import Failures, FitStats, NewtonCounts, Solves
 from .likelihood import FlatLikelihood, Likelihood, flatten_likelihood
 from .options import MGVIOptions
@@ -47,6 +47,8 @@ class Runtime(NamedTuple):
     ncg_atol: Any
     ncg_miniter: Any
     ncg_maxiter: Any
+    draw_refresh: Any
+    ncg_refresh: Any
 
 
 def split_options(options: MGVIOptions, d: int, dtype, diagnostics: bool):
@@ -74,6 +76,8 @@ def split_options(options: MGVIOptions, d: int, dtype, diagnostics: bool):
         ncg_atol=f(options.newton.cg.atol),
         ncg_miniter=i(nmin),
         ncg_maxiter=i(nmax),
+        draw_refresh=i(options.draw_cg.refresh),
+        ncg_refresh=i(options.newton.cg.refresh),
     )
     return static, runtime
 
@@ -126,13 +130,9 @@ def draw_residuals(prob: Problem, key, xbar, tau, n, st: Static, rt: Runtime):
             rt.draw_maxiter,
             2,
             precond,
+            rt.draw_refresh,
         )
-        res = (
-            relative_residual(matvec, zeta, delta)
-            if st.diagnostics
-            else jnp.asarray(0.0, xbar.dtype)
-        )
-        return delta, zeta, info, res
+        return delta, zeta, info, info.rel_residual.astype(xbar.dtype)
 
     deltas, zetas, infos, res = jax.vmap(one)(jax.random.split(key, n))
     stats = Solves(
@@ -208,8 +208,10 @@ def newton(prob: Problem, xbar, deltas, tau, y, st: Static, rt: Runtime):
         rn_free = jnp.sqrt(r_free @ r_free)
         zero_better = jnp.isfinite(rn_free) & (rn_free >= jnp.sqrt(g @ g))
         x0 = jnp.where(zero_better, jnp.zeros_like(free), free)
-        p, info = cg(mv, -g, x0, resnorm, rt.ncg_miniter, rt.ncg_maxiter, ord_, precond)
-        res = relative_residual(mv, -g, p) if st.diagnostics else jnp.asarray(0.0, x.dtype)
+        p, info = cg(
+            mv, -g, x0, resnorm, rt.ncg_miniter, rt.ncg_maxiter, ord_, precond, rt.ncg_refresh
+        )
+        res = info.rel_residual.astype(x.dtype)
         solves = solves.add(info, res)
 
         gn = jnp.sqrt(g @ g)

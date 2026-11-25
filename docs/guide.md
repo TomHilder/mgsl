@@ -269,5 +269,13 @@ d = result.diagnostics
 plt.semilogx(d.taus, d.ess_fraction.T, color="k", alpha=0.2)
 ```
 
-Turning diagnostics off saves `2 * n_samples_mgvi + 1` log-likelihood evaluations and one
-Fisher application per solve, per fit.
+Turning diagnostics off saves `2 * n_samples_mgvi + 1` log-likelihood evaluations per fit.
+
+Every CG solve judges convergence on its true residual \(\mathbf{b} - \mathbf{A}\mathbf{x}\),
+recomputed every `refresh` iterations (`CGOptions(refresh=20)`, as in NIFTy.re) and whenever the
+solve looks converged. CG's cheap running estimate of the residual drifts in floating point, and
+in badly conditioned solves it can claim convergence for an iterate that is far off; the
+recomputation prevents that. CG also stops, keeping its previous iterate, when its objective
+\(\tfrac12 \mathbf{x}^\top \mathbf{A}\mathbf{x} - \mathbf{b}^\top \mathbf{x}\) stops
+decreasing, which means it has reached rounding noise. Lowering `refresh` limits drift further but slows convergence when
+done every few iterations.

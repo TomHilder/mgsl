@@ -607,8 +607,7 @@ def sample(
     options : MGVIOptions
     calculate_diagnostics : bool
         Record the local ESS and the CG and Newton statistics. Costs ``2 n_samples_mgvi + 1``
-        log-likelihood evaluations and one Fisher application per solve, per fit. Failure
-        counts are recorded either way.
+        log-likelihood evaluations per fit. Failure counts are recorded either way.
     batch_size : int, optional
         Paths per compiled call; batches run one after another and the last one is padded.
         Default: all paths in one call, kept on the device between steps. Smaller batches

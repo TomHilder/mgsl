@@ -310,3 +310,22 @@ def test_default_options_run_cleanly_on_a_nonlinear_problem():
         )
     assert not res.failures.any(), res.failures.totals()
     assert np.nanmax(res.diagnostics.cg_newton.max_rel_residual) <= 1.0
+
+
+def test_changing_refresh_does_not_recompile():
+    from mgsl import sampler
+
+    p = LinGauss.make(d=4, n=6)
+    lik = p.lik()  # one object: a new likelihood (new forward function) would recompile
+    run(lik, jnp.asarray(p.mean))
+    n = [f._cache_size() for f in sampler._JITTED.values()]
+    cg = mgsl.CGOptions(tol=1e-12, miniter=0, maxiter=500, refresh=7)
+    base = tight_options()
+    opts = mgsl.MGVIOptions(
+        n_samples_mgvi=base.n_samples_mgvi,
+        n_iter_mgvi=base.n_iter_mgvi,
+        newton=mgsl.NewtonOptions(maxiter=5, xtol=0.0, adaptive_cg=False, cg=cg),
+        draw_cg=cg,
+    )
+    run(lik, jnp.asarray(p.mean), opts)
+    assert [f._cache_size() for f in sampler._JITTED.values()] == n
