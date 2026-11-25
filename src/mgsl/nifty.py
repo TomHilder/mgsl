@@ -86,7 +86,7 @@ def from_likelihood(lh, **primals_kw) -> Likelihood:
             "the likelihood has no lsm_tangents_shape, so its Fisher square root cannot be "
             "sampled; construct it with lsm_tangents_shape"
         )
-    if not isinstance(lh, jft.likelihood.LikelihoodWithModel):
+    if not isinstance(lh, (jft.likelihood.LikelihoodWithModel, jft.likelihood.LikelihoodSum)):
         warnings.warn(
             "the NIFTy.re likelihood is not amended with a model: mgsl assumes its primals are "
             "the latent with a standard-normal prior",

@@ -101,39 +101,36 @@ def test_no_warning_when_clean(lin):
         small(lin)
 
 
-def test_no_retrace_for_new_data_or_settings(lin):
-    traces = []
+def test_no_recompile_for_new_data_grid_or_settings(lin):
+    from mgsl import sampler
+
     A = jnp.asarray(lin.A)
 
     def forward(x):
-        traces.append(1)
         return A @ x
 
+    def cache_sizes():
+        return [f._cache_size() for f in sampler._JITTED.values()]
+
+    def run(data, sched, opts):
+        lik = mgsl.gaussian(forward, data, noise_std=lin.sd)
+        mgsl.sample(jax.random.key(0), lik, jnp.zeros(6), sched, opts, progress=False)
+
     sched = mgsl.Schedule(4, 1.0, 1e3, 4)
-    run = lambda data, sched, opts: mgsl.sample(
-        jax.random.key(0),
-        mgsl.gaussian(forward, data, noise_std=lin.sd),
-        jnp.zeros(6),
-        sched,
-        opts,
-    )
     run(lin.data, sched, tight_options())
-    n = len(traces)
+    n = cache_sizes()
     run(lin.data + 1.0, sched, tight_options())  # new data, same shapes
-    run(lin.data, mgsl.Schedule(4, 2.0, 5e3, 4), tight_options())  # new taus
+    run(lin.data, mgsl.Schedule(4, 2.0, 5e3, 9), tight_options())  # new taus, longer grid
     loose = mgsl.MGVIOptions(
         n_samples_mgvi=2,
         n_iter_mgvi=1,
         newton=mgsl.NewtonOptions(
-            maxiter=7,
-            xtol=1e-3,
-            adaptive_cg=False,
-            cg=mgsl.CGOptions(tol=1e-6, miniter=0, maxiter=300),
+            maxiter=7, xtol=1e-3, adaptive_cg=False, cg=mgsl.CGOptions(tol=1e-6, maxiter=300)
         ),
         draw_cg=mgsl.CGOptions(tol=1e-9, miniter=0, maxiter=400),
     )
     run(lin.data, sched, loose)  # new tolerances and iteration limits
-    assert len(traces) == n
+    assert cache_sizes() == n
 
 
 def test_type_errors(lin):

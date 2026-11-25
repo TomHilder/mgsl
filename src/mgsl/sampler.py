@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import functools
 import logging
+import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple
@@ -11,11 +13,11 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.sharding import Mesh
+from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 
 from . import _tree
-from .diagnostics import Failures, FitDiagnostics, MGSLDiagnostics
+from .diagnostics import Failures, FitDiagnostics, FitStats, MGSLDiagnostics
 from .likelihood import Likelihood
 from .mgvi import (
     HashableStruct,
@@ -42,11 +44,17 @@ def _path_key(key_data, impl, purpose, path, step):
     return jax.random.fold_in(jax.random.fold_in(jax.random.fold_in(key, purpose), path), step)
 
 
+def _map(fn, args, vectorize):
+    """Apply ``fn`` to each path: batched with vmap, or one path after another."""
+    return jax.vmap(fn)(args) if vectorize else jax.lax.map(fn, args)
+
+
 # --------------------------------------------------------------------------------------------
-# Per-batch kernels (vmapped over paths)
+# Kernels: one call handles one batch of paths for one stage (start, one step, terminal fit).
+# Arguments: replicated ones first, then the per-path ones (path indices, then arrays).
 
 
-def _init_kernel(lik, pre, rt, key_data, tau0, mu, paths, *, impl, st, hstruct):
+def _init_kernel(lik, pre, rt, key_data, tau0, mu, paths, *, impl, st, hstruct, vectorize):
     prob = make_problem(lik, pre, hstruct)
     zero_tau = jnp.zeros((), mu.dtype)
 
@@ -56,89 +64,114 @@ def _init_kernel(lik, pre, rt, key_data, tau0, mu, paths, *, impl, st, hstruct):
         xi = jax.random.normal(kb, mu.shape, mu.dtype)
         return tau0 * (mu + deltas[0]) + jnp.sqrt(tau0) * xi, solves
 
-    return jax.vmap(one)(paths)
+    return _map(one, paths, vectorize)
 
 
-def _advance_kernel(lik, pre, rt, key_data, taus, step0, paths, y, xbar, *, impl, st, hstruct):
+def _step_kernel(
+    lik, pre, rt, key_data, tau, dtau, step, paths, y, xbar, *, impl, st, hstruct, vectorize
+):
     prob = make_problem(lik, pre, hstruct)
-    dtaus = jnp.diff(taus)
-    steps = step0 + jnp.arange(dtaus.shape[0])
 
-    def path(p, y, xbar):
-        def body(carry, inp):
-            y, xbar = carry
-            tau, dtau, k = inp
-            kf = _path_key(key_data, impl, _FIT, p, k)
-            kt = _path_key(key_data, impl, _TRANSITION, p, k)
-            xbar, deltas, _, stats = local_fit(prob, kf, xbar, tau, y, st, rt)
-            xi = jax.random.normal(kt, y.shape, y.dtype)
-            # over the step the unknown is drawn from the local Gaussian: X = xbar + delta
-            y = y + dtau * (xbar + deltas[0]) + jnp.sqrt(dtau) * xi
-            return (y, xbar), stats
-
-        (y, xbar), stats = jax.lax.scan(body, (y, xbar), (taus[:-1], dtaus, steps))
+    def one(args):
+        p, y, xbar = args
+        kf = _path_key(key_data, impl, _FIT, p, step)
+        kt = _path_key(key_data, impl, _TRANSITION, p, step)
+        xbar, deltas, _, stats = local_fit(prob, kf, xbar, tau, y, st, rt)
+        xi = jax.random.normal(kt, y.shape, y.dtype)
+        # over the step the unknown is drawn from the local Gaussian: X = xbar + delta
+        y = y + dtau * (xbar + deltas[0]) + jnp.sqrt(dtau) * xi
         return y, xbar, stats
 
-    return jax.vmap(path)(paths, y, xbar)
+    return _map(one, (paths, y, xbar), vectorize)
 
 
-def _finalize_kernel(lik, pre, rt, key_data, tau, step, paths, y, xbar, *, impl, st, hstruct):
+def _terminal_kernel(
+    lik, pre, rt, key_data, tau, step, paths, y, xbar, *, impl, st, hstruct, vectorize
+):
     prob = make_problem(lik, pre, hstruct)
 
-    def one(p, y, xbar):
+    def one(args):
+        p, y, xbar = args
         k = _path_key(key_data, impl, _TERMINAL, p, step)
         xbar, deltas, _, stats = local_fit(prob, k, xbar, tau, y, st, rt)
         return xbar + deltas[0], stats
 
-    return jax.vmap(one)(paths, y, xbar)
+    return _map(one, (paths, y, xbar), vectorize)
 
 
-# argument positions that are sharded over paths (the rest are replicated)
-_SHARDED = {
-    _init_kernel: (False, False, False, False, False, False, True),
-    _advance_kernel: (False, False, False, False, False, False, True, True, True),
-    _finalize_kernel: (False, False, False, False, False, False, True, True, True),
-}
+_N_REPLICATED = {_init_kernel: 6, _step_kernel: 7, _terminal_kernel: 6}
+_STATIC = ("impl", "st", "hstruct", "vectorize")
+_JITTED = {k: jax.jit(k, static_argnames=_STATIC) for k in _N_REPLICATED}
 
 
-@functools.lru_cache(maxsize=64)
-def _compiled(kernel, devices: tuple | None, **static):
-    fn = functools.partial(kernel, **static)
-    if devices is None:
-        return jax.jit(fn)
+@functools.lru_cache(maxsize=16)
+def _sharded(kernel, devices: tuple, **static):
     mesh = Mesh(np.asarray(devices), ("paths",))
-    in_specs = tuple(P("paths") if s else P() for s in _SHARDED[kernel])
-    return jax.jit(
-        jax.shard_map(fn, mesh=mesh, in_specs=in_specs, out_specs=P("paths"), check_vma=False)
+    n_rep = _N_REPLICATED[kernel]
+    n_args = {_init_kernel: 7, _step_kernel: 10, _terminal_kernel: 9}[kernel]
+    in_specs = tuple(P() if i < n_rep else P("paths") for i in range(n_args))
+    fn = jax.shard_map(
+        functools.partial(kernel, **static),
+        mesh=mesh,
+        in_specs=in_specs,
+        out_specs=P("paths"),
+        check_vma=False,
     )
+    return jax.jit(fn), NamedSharding(mesh, P("paths"))
 
 
-def _run(kernel, n_paths, batch_size, devices, replicated, sharded, **static):
-    """Run ``kernel`` over all paths in batches; ``sharded`` are per-path arrays (leading axis
-    n_paths), path indices are prepended to them. Returns host (numpy) outputs."""
-    dev = None if devices is None else tuple(devices)
-    if dev is not None and len(dev) == 0:
-        raise ValueError("devices must be None or a non-empty sequence of devices")
-    bs = n_paths if batch_size is None else _as_int("batch_size", batch_size, 1)
-    if dev is None:
-        bs = min(bs, n_paths)
-    elif bs % len(dev):
-        raise ValueError(
-            f"batch_size ({bs}) must be a multiple of the number of devices ({len(dev)})"
-        )
-    fn = _compiled(kernel, dev, **static)
-    n_batches = -(-n_paths // bs)
-    outs = []
-    for b in range(n_batches):
-        idx = np.arange(b * bs, min((b + 1) * bs, n_paths))
-        padded = np.concatenate([idx, np.full(bs - idx.size, idx[-1])]).astype(np.int32)
-        args = [jnp.asarray(padded)] + [jnp.asarray(np.asarray(a)[padded]) for a in sharded]
-        out = jax.device_get(fn(*replicated, *args))
-        n_real = idx.size
-        outs.append(jax.tree_util.tree_map(lambda a, n=n_real: a[:n], out))
-        if n_batches > 1:
-            logger.info("mgsl: batch %d/%d done", b + 1, n_batches)
-    return jax.tree_util.tree_map(lambda *a: np.concatenate(a, 0), *outs)
+class _Batches:
+    """Runs a kernel over all paths, in batches of ``batch_size`` (the last one padded).
+
+    With one batch and no devices, per-path arrays stay on the device between calls."""
+
+    def __init__(self, n_paths, batch_size, devices, vectorize):
+        if devices is not None and not isinstance(devices, Sequence):
+            raise TypeError("devices must be None or a sequence of jax devices")
+        self.devices = None if devices is None else tuple(devices)
+        if self.devices is not None and len(self.devices) == 0:
+            raise ValueError("devices must be None or a non-empty sequence of devices")
+        n_dev = 1 if self.devices is None else len(self.devices)
+        if batch_size is None:
+            bs = -(-n_paths // n_dev) * n_dev  # all paths, padded to a multiple of the devices
+        else:
+            bs = _as_int("batch_size", batch_size, 1)
+            if bs % n_dev:
+                raise ValueError(
+                    f"batch_size ({bs}) must be a multiple of the number of devices ({n_dev})"
+                )
+            bs = min(bs, -(-n_paths // n_dev) * n_dev)
+        self.n_paths, self.bs, self.vectorize = n_paths, bs, bool(vectorize)
+        self.n_batches = -(-n_paths // bs)
+        self.resident = self.n_batches == 1 and self.devices is None and bs == n_paths
+
+    def run(self, kernel, replicated, per_path, **static):
+        """``per_path``: arrays with leading axis n_paths (host or device). Returns outputs with
+        leading axis n_paths: device arrays if ``resident``, else host arrays."""
+        static = dict(static, vectorize=self.vectorize)
+        if self.resident:
+            paths = jnp.arange(self.n_paths, dtype=jnp.int32)
+            return _JITTED[kernel](*replicated, paths, *per_path, **static)
+        if self.devices is None:
+            fn, sharding = functools.partial(_JITTED[kernel], **static), None
+        else:
+            fn, sharding = _sharded(kernel, self.devices, **static)
+        out = None
+        for b in range(self.n_batches):
+            idx = np.arange(b * self.bs, min((b + 1) * self.bs, self.n_paths))
+            padded = np.concatenate([idx, np.full(self.bs - idx.size, idx[-1])]).astype(np.int32)
+            args = [padded] + [np.asarray(a)[padded] for a in per_path]
+            args = [jax.device_put(a, sharding) if sharding is not None else a for a in args]
+            res = jax.device_get(fn(*replicated, *args))
+            if out is None:
+                out = jax.tree_util.tree_map(
+                    lambda a: np.empty((self.n_paths, *a.shape[1:]), a.dtype), res
+                )
+            jax.tree_util.tree_map(
+                lambda o, r, n=idx.size, i=idx: o.__setitem__(i, r[:n]), out, res
+            )
+        assert out is not None
+        return out
 
 
 # --------------------------------------------------------------------------------------------
@@ -151,6 +184,20 @@ def _check_lik(lik):
             f"expected an mgsl.Likelihood, got {type(lik).__name__} (for NIFTy.re likelihoods "
             "use mgsl.nifty.from_likelihood)"
         )
+
+
+def _check_lik_accepts(lik, struct):
+    """Trace the log-likelihood on the latent's structure, for a clear error on a mismatch."""
+    try:
+        out = jax.eval_shape(lik.log_likelihood, struct)
+    except Exception as e:
+        raise ValueError(
+            "the likelihood does not accept a latent of the run's structure "
+            f"{jax.tree_util.tree_structure(struct)} (shapes "
+            f"{[s.shape for s in jax.tree_util.tree_leaves(struct)]}): {e}"
+        ) from e
+    if getattr(out, "shape", None) != ():
+        raise ValueError(f"log_likelihood must return a scalar, got {out}")
 
 
 def _check_options(options):
@@ -170,14 +217,33 @@ def _check_centre(mu):
     return _tree.latent_struct(mu)
 
 
-def _check_devices(devices):
-    if devices is not None and not isinstance(devices, Sequence):
-        raise TypeError("devices must be None or a sequence of jax devices")
-    return devices
+def _check_state(state):
+    if not isinstance(state, SLState):
+        raise TypeError(f"expected an SLState, got {type(state).__name__}")
 
 
 def _precond(options):
     return None if options.preconditioner is None else _Precond(options.preconditioner)
+
+
+class _Progress:
+    """One line per step on stderr (and on the "mgsl" logger)."""
+
+    def __init__(self, enabled, n_steps, n_paths):
+        self.enabled, self.n_steps, self.n_paths = enabled, n_steps, n_paths
+        self.t = time.perf_counter()
+
+    def line(self, label, tau, stats, failures_total):
+        now = time.perf_counter()
+        dt, self.t = now - self.t, now
+        msg = f"mgsl  {label}  tau={tau:.3g}  {dt:.2f} s"
+        ess = np.asarray(stats.ess)
+        if np.any(np.isfinite(ess)):
+            msg += f"  ESS fraction median {np.nanmedian(ess):.2f}, min {np.nanmin(ess):.2f}"
+        msg += f"  failures {failures_total}"
+        logger.info(msg)
+        if self.enabled:
+            print(msg, file=sys.stderr, flush=True)
 
 
 # --------------------------------------------------------------------------------------------
@@ -210,6 +276,7 @@ def init(
     options: MGVIOptions,
     batch_size: int | None = None,
     devices: Sequence | None = None,
+    vectorize: bool = False,
 ) -> SLState:
     """Start ``n_paths`` localisation paths at ``tau_start``.
 
@@ -232,22 +299,25 @@ def init(
         Localisation time to start at (> 0).
     options : MGVIOptions
         Only ``draw_cg`` (and the preconditioner) are used here.
-    batch_size, devices
+    batch_size, devices, vectorize
         See :func:`sample`.
 
     Returns
     -------
     SLState
     """
-    state, failures = _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices)
+    state, failures = _init(
+        key, lik, mu, n_paths, tau_start, options, batch_size, devices, vectorize
+    )
     failures.warn("init")
     return state
 
 
-def _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices):
+def _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices, vectorize):
     _check_lik(lik)
     _check_options(options)
     struct = _check_centre(mu)
+    _check_lik_accepts(lik, struct)
     n_paths = _as_int("n_paths", n_paths, 1)
     tau_start = _as_float("tau_start", tau_start)
     if tau_start <= 0:
@@ -258,11 +328,9 @@ def _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices):
     impl = str(jax.random.key_impl(key))
     key_data = jax.random.key_data(key)
     mu_flat = jnp.asarray(ravel(mu))
-    y, solves = _run(
+    batches = _Batches(n_paths, batch_size, devices, vectorize)
+    y, solves = batches.run(
         _init_kernel,
-        n_paths,
-        batch_size,
-        _check_devices(devices),
         (lik, _precond(options), rt, key_data, jnp.asarray(tau_start, dtype), mu_flat),
         (),
         impl=impl,
@@ -290,11 +358,6 @@ def _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices):
     return state, failures
 
 
-def _check_state(state):
-    if not isinstance(state, SLState):
-        raise TypeError(f"expected an SLState, got {type(state).__name__}")
-
-
 def advance(
     lik: Likelihood,
     state: SLState,
@@ -304,6 +367,8 @@ def advance(
     calculate_diagnostics: bool = True,
     batch_size: int | None = None,
     devices: Sequence | None = None,
+    vectorize: bool = False,
+    progress: bool = True,
     _warn: bool = True,
 ) -> tuple[SLState, Report]:
     """Advance every path of ``state`` along the grid ``taus``.
@@ -315,6 +380,9 @@ def advance(
     ``y += dtau (xbar + delta) + sqrt(dtau) xi``, with ``delta ~ N(0, Lambda^{-1})`` and
     ``xi ~ N(0, Id)`` fresh for every step and path.
 
+    Each step is one compiled call (for all paths, or per batch), so the grid's length and
+    values do not cause recompilation.
+
     Parameters
     ----------
     lik : Likelihood
@@ -323,7 +391,7 @@ def advance(
         Increasing grid; ``taus[0]`` must equal ``state.tau`` (relative tolerance 1e-12). Use
         ``mgsl.grid(state.tau, tau_final, n)`` for a geometric continuation.
     options : MGVIOptions
-    calculate_diagnostics, batch_size, devices
+    calculate_diagnostics, batch_size, devices, vectorize, progress
         See :func:`sample`.
 
     Returns
@@ -336,6 +404,7 @@ def advance(
     _check_lik(lik)
     _check_state(state)
     _check_options(options)
+    _check_lik_accepts(lik, state.struct)
     taus = np.asarray(taus, np.float64)
     if taus.ndim != 1 or taus.size < 2:
         raise ValueError("taus must be a 1D array of at least 2 points")
@@ -348,29 +417,41 @@ def advance(
         )
     dtype = state.y.dtype
     st, rt = split_options(options, state.d, dtype, calculate_diagnostics)
-    y, xbar, stats = _run(
-        _advance_kernel,
-        state.n_paths,
-        batch_size,
-        _check_devices(devices),
-        (
-            lik,
-            _precond(options),
-            rt,
-            jnp.asarray(state.key_data),
-            jnp.asarray(taus, dtype),
-            jnp.asarray(state.step, jnp.int32),
-        ),
-        (state.y, state.xbar),
-        impl=state.key_impl,
-        st=st,
-        hstruct=HashableStruct(state.struct),
-    )
+    batches = _Batches(state.n_paths, batch_size, devices, vectorize)
+    pre, key_data = _precond(options), jnp.asarray(state.key_data)
+    static = {"impl": state.key_impl, "st": st, "hstruct": HashableStruct(state.struct)}
+    y, xbar = state.y, state.xbar
+    if batches.resident:
+        y, xbar = jnp.asarray(y), jnp.asarray(xbar)
+    n_steps = taus.size - 1
+    bar = _Progress(progress, n_steps, state.n_paths)
+    per_step, failures_total = [], 0
+    for k in range(n_steps):
+        step = state.step + k
+        y, xbar, stats = batches.run(
+            _step_kernel,
+            (
+                lik,
+                pre,
+                rt,
+                key_data,
+                jnp.asarray(taus[k], dtype),
+                jnp.asarray(taus[k + 1] - taus[k], dtype),
+                jnp.asarray(step, jnp.int32),
+            ),
+            (y, xbar),
+            **static,
+        )
+        stats = jax.device_get(stats)
+        per_step.append(stats)
+        failures_total += sum(Failures.from_stats(_with_step_axis(stats)).totals().values())
+        bar.line(f"step {k + 1}/{n_steps}", taus[k], stats, failures_total)
+    stats = jax.tree_util.tree_map(lambda *a: np.stack(a, axis=1), *per_step)
     new = SLState(
         y=np.asarray(y),
         xbar=np.asarray(xbar),
         tau=float(taus[-1]),
-        step=state.step + taus.size - 1,
+        step=state.step + n_steps,
         key_data=state.key_data,
         key_impl=state.key_impl,
         struct=state.struct,
@@ -384,6 +465,10 @@ def advance(
     return new, Report(diag, failures)
 
 
+def _with_step_axis(stats: FitStats) -> FitStats:
+    return jax.tree_util.tree_map(lambda a: np.asarray(a)[:, None], stats)
+
+
 def finalize(
     lik: Likelihood,
     state: SLState,
@@ -392,6 +477,8 @@ def finalize(
     calculate_diagnostics: bool = True,
     batch_size: int | None = None,
     devices: Sequence | None = None,
+    vectorize: bool = False,
+    progress: bool = True,
     _warn: bool = True,
 ) -> tuple[Any, Report]:
     """Draw one sample per path from ``state``.
@@ -399,33 +486,33 @@ def finalize(
     Fits each path's localised posterior at ``state.tau`` and returns ``xbar + delta``, with
     ``xbar`` the fit's centre and ``delta ~ N(0, Lambda^{-1})`` a draw from it (see
     :func:`advance`). The state is not changed, so it can still be advanced further and
-    finalised again.
+    finalised again. Samples of paths whose fit hit a non-finite log-likelihood are NaN.
 
     Parameters
     ----------
     lik : Likelihood
     state : SLState
     options : MGVIOptions
-    calculate_diagnostics, batch_size, devices
+    calculate_diagnostics, batch_size, devices, vectorize, progress
         See :func:`sample`.
 
     Returns
     -------
     samples : pytree
-        Structured like the latent, with leading axis ``n_paths``.
+        Structured like the latent, with leading axis ``n_paths``; NumPy arrays on the host.
     report : Report
         With the terminal :class:`FitDiagnostics` (or None) and :class:`Failures`.
     """
     _check_lik(lik)
     _check_state(state)
     _check_options(options)
+    _check_lik_accepts(lik, state.struct)
     dtype = state.y.dtype
     st, rt = split_options(options, state.d, dtype, calculate_diagnostics)
-    flat, stats = _run(
-        _finalize_kernel,
-        state.n_paths,
-        batch_size,
-        _check_devices(devices),
+    batches = _Batches(state.n_paths, batch_size, devices, vectorize)
+    bar = _Progress(progress, 1, state.n_paths)
+    flat, stats = batches.run(
+        _terminal_kernel,
         (
             lik,
             _precond(options),
@@ -439,13 +526,23 @@ def finalize(
         st=st,
         hstruct=HashableStruct(state.struct),
     )
-    _, unravel, _, _ = _tree.make_unravel(state.struct)
-    samples = jax.device_get(jax.vmap(unravel)(jnp.asarray(flat)))
-    failures = Failures.from_stats(jax.tree_util.tree_map(lambda a: a[:, None], stats))
+    flat, stats = np.asarray(flat), jax.device_get(stats)
+    failures = Failures.from_stats(_with_step_axis(stats))
+    bar.line("terminal fit", state.tau, stats, sum(failures.totals().values()))
+    flat = _nan_frozen(flat, failures.nonfinite)
+    samples = _tree.unravel_batch(flat, state.struct)
     if _warn:
         failures.warn("finalize")
     diag = FitDiagnostics.from_stats(stats) if calculate_diagnostics else None
     return samples, Report(diag, failures)
+
+
+def _nan_frozen(flat, nonfinite):
+    frozen = np.asarray(nonfinite) > 0
+    if frozen.any():
+        flat = flat.copy()
+        flat[frozen] = np.nan
+    return flat
 
 
 @dataclass(frozen=True)
@@ -456,6 +553,7 @@ class Result:
     ----------
     samples : pytree
         Structured like the latent, with leading axis ``n_paths``; NumPy arrays on the host.
+        NaN for paths that hit a non-finite log-likelihood (see ``failures.nonfinite``).
     state : SLState
         The paths' state at ``tau_final``; continue it with :func:`advance`.
     schedule : Schedule
@@ -483,6 +581,8 @@ def sample(
     calculate_diagnostics: bool = True,
     batch_size: int | None = None,
     devices: Sequence | None = None,
+    vectorize: bool = False,
+    progress: bool = True,
 ) -> Result:
     """Draw ``schedule.n_paths`` posterior samples with MGSL.
 
@@ -509,12 +609,21 @@ def sample(
         log-likelihood evaluations and one Fisher application per solve, per fit. Failure
         counts are recorded either way.
     batch_size : int, optional
-        Paths per compiled batch; the batches run one after another and the last one is
-        padded. Default: all paths in one batch. ``batch_size=1`` runs the paths one at a time,
-        which is often fastest for expensive models on CPU.
+        Paths per compiled call; batches run one after another and the last one is padded.
+        Default: all paths in one call, kept on the device between steps. Smaller batches
+        bound device memory.
     devices : sequence of jax devices, optional
         Shard each batch over exactly these devices (``batch_size`` must be a multiple of their
-        number). Default: no sharding, whatever devices exist.
+        number; by default all paths, padded to a multiple). Default: no sharding, whatever
+        devices exist.
+    vectorize : bool
+        False (default): within a call, paths run one after another, each with as many solver
+        iterations as it needs. True: paths are batched with ``jax.vmap``, which is faster for
+        cheap models or on accelerators, but every solver loop then runs as long as its slowest
+        path.
+    progress : bool
+        Print one line per step to stderr (time, local ESS fraction, failure count). The same
+        lines go to the ``"mgsl"`` logger at INFO level.
 
     Returns
     -------
@@ -522,29 +631,33 @@ def sample(
     """
     if not isinstance(schedule, Schedule):
         raise TypeError(f"expected a Schedule, got {type(schedule).__name__}")
-    state, ifail = _init(
-        key, lik, mu, schedule.n_paths, schedule.tau_start, options, batch_size, devices
-    )
+    kw = {"batch_size": batch_size, "devices": devices, "vectorize": vectorize}
+    state, ifail = _init(key, lik, mu, schedule.n_paths, schedule.tau_start, options, **kw)
     state, rep = advance(
         lik,
         state,
         schedule.taus,
         options,
         calculate_diagnostics=calculate_diagnostics,
-        batch_size=batch_size,
-        devices=devices,
+        progress=progress,
         _warn=False,
+        **kw,
     )
     samples, frep = finalize(
         lik,
         state,
         options,
         calculate_diagnostics=calculate_diagnostics,
-        batch_size=batch_size,
-        devices=devices,
+        progress=progress,
         _warn=False,
+        **kw,
     )
     failures = ifail + rep.failures + frep.failures
+    if np.any(np.asarray(rep.failures.nonfinite) > 0):  # frozen during the steps
+        frozen = np.asarray(rep.failures.nonfinite) > 0
+        samples = jax.tree_util.tree_map(
+            lambda a: np.where(frozen.reshape((-1,) + (1,) * (a.ndim - 1)), np.nan, a), samples
+        )
     failures.warn("sample")
     diag = rep.diagnostics.with_terminal(frep.diagnostics) if calculate_diagnostics else None
     return Result(samples, state, schedule, diag, failures)

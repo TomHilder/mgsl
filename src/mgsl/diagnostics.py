@@ -143,24 +143,38 @@ class Failures(NamedTuple):
         return any(v > 0 for v in self.totals().values())
 
     def warn(self, where: str) -> None:
-        """Issue a warning listing the non-zero counts."""
+        """Issue a warning listing the non-zero counts, with what to check for each."""
         if not self.any():
             return
         n_paths = len(np.asarray(self.nonfinite))
-        parts = []
+        lines = []
         for k, v in self._asdict().items():
             v = np.asarray(v)
             if v.sum() > 0:
-                parts.append(f"{k}={int(v.sum())} (in {int((v > 0).sum())}/{n_paths} paths)")
+                lines.append(
+                    f"  {k}={int(v.sum())} (in {int((v > 0).sum())}/{n_paths} paths): {_HINTS[k]}"
+                )
         warnings.warn(
-            f"mgsl {where}: solver failures: "
-            + ", ".join(parts)
-            + ". See the docstring of mgsl.Failures (result.failures) for what each count "
-            "means; raising the CG or Newton maxiter, or checking the likelihood with "
-            "mgsl.check_likelihood, usually helps.",
+            f"mgsl {where}: solver failures (see mgsl.Failures):\n" + "\n".join(lines),
             RuntimeWarning,
             stacklevel=3,
         )
+
+
+_HINTS = {
+    "draw_cg_capped": "residual draws stopped at draw_cg.maxiter; raise it (or precondition)",
+    "newton_cg_capped": "Newton CG solves stopped at newton.cg.maxiter; usually harmless if "
+    "the fits converge, otherwise raise it",
+    "cg_breakdowns": "CG stopped early: the Fisher information is not positive semi-definite, "
+    "the model returned NaN/inf, or the preconditioner is singular; run "
+    "mgsl.check_likelihood",
+    "sd_fallbacks": "Newton directions were replaced by gradient steps: the Fisher "
+    "information may be a poor curvature model there; check the likelihood",
+    "line_search_failures": "no decrease found along the step; check the likelihood, or try "
+    "line_search='armijo'",
+    "nonfinite": "the log-likelihood is NaN/inf at the fit's centre, so those paths cannot "
+    "move (their samples are NaN): check the data and the model's domain",
+}
 
 
 class CGStats(NamedTuple):
@@ -198,9 +212,12 @@ class FitDiagnostics(NamedTuple):
     Attributes
     ----------
     ess_fraction : array
-        Effective sample size of the fit's mirrored residuals as importance samples of the
-        localised posterior, divided by ``2 * n_samples_mgvi``. 1 means the local Gaussian is
-        exact; NaN where a residual's CG solve did not converge.
+        Effective sample size ``ESS`` of the fit's ``m = 2 n_samples_mgvi`` mirrored residuals
+        as importance samples of the localised posterior, rescaled to
+        ``(ESS - 1) / (m - 1)``: 1 means equal weights (the local Gaussian matches the
+        localised posterior at these points), 0 means one point carries all the weight. With
+        few residuals it is a coarse check: deviations of the local Gaussian that the ``m``
+        points do not probe go unseen. NaN where a residual's CG solve did not converge.
     newton_iter : array
         Newton steps taken per fit (all rounds).
     cg_newton, cg_draws : CGStats

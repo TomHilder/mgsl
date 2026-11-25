@@ -43,9 +43,11 @@ data-space Fisher matrix instead of \(J^\top F J\), a Fisher information that is
 semi-definite, or wrong output shapes. It returns the quadratic forms it compared. Run it at
 zeros and near the posterior (e.g. at a fit's centre).
 
-Arrays held by a `Likelihood` through `jax.tree_util.Partial` (as `gaussian` does) are passed to
-compiled code at run time, so new data of the same shape does not recompile. Arrays captured by
-a plain closure (a `lambda` or nested function) are compiled in as constants.
+Arrays (and Python floats) held by a `Likelihood` through `jax.tree_util.Partial`, as
+`gaussian` does, are passed to compiled code at run time, so new data of the same shape does
+not recompile. Arrays captured by a plain closure (a `lambda` or nested function) are compiled
+in as constants. Functions, including bound methods, are compared by identity, so a
+`Likelihood` rebuilt after its data changed is recompiled rather than run with stale data.
 
 ### NIFTy.re models
 
@@ -91,9 +93,16 @@ precision \(\Lambda = (1 + \tau)\,\mathrm{Id} + I(\bar x)\) at localisation time
 - `advance` moves every path along a grid of localisation times. At each grid point it fits the
   localised posterior (warm-started from the previous fit) and sets
   \(y \leftarrow y + \Delta\tau\,(\bar x + \delta) + \sqrt{\Delta\tau}\,\xi\), with
-  \(\Delta\tau\) the distance to the next grid point.
+  \(\Delta\tau\) the distance to the next grid point. Each step is one compiled call, so
+  grids of any length and values reuse the same compiled code, and progress is printed after
+  every step (`progress=False` turns it off; the lines also go to the `"mgsl"` logger):
+
+  ```
+  mgsl  step 12/63  tau=120  3.41 s  ESS fraction median 0.97, min 0.81  failures 0
+  ```
 - `finalize` fits each path at its current \(\tau\) and returns \(\bar x + \delta\). It does not
-  change the state.
+  change the state. Paths whose log-likelihood became NaN or infinite (counted in
+  `failures.nonfinite`) get NaN samples.
 
 The run uses the dtype of the centre `mu`. Float64 (`jax.config.update("jax_enable_x64",
 True)`) is recommended; float32 works with looser attainable CG tolerances.
@@ -103,8 +112,9 @@ True)`) is recommended; float32 works with looser attainable CG tolerances.
 The state holds everything needed to continue: the paths' observations and centres, the
 localisation time and step count, the run's key and the latent's structure. Random numbers are
 derived from the key, the path and the global step, so a run split into several `advance`
-calls gives exactly the samples of one uninterrupted run over the same grid points with the
-same options.
+calls gives the samples of one uninterrupted run over the same grid points with the same
+options: bit for bit with the same `batch_size`, `devices` and `vectorize`, and to rounding
+otherwise.
 
 ```python
 mgsl.save_state("run.npz", result.state)
@@ -114,18 +124,31 @@ samples, final = mgsl.finalize(lik, state, options)
 ```
 
 `load_state` raises `ValueError` if `like` does not match the saved structure, shapes or
-dtypes. For crash safety, advance in chunks and save the state after each one;
+dtypes. For crash safety, advance in chunks and save the state after each one (`save_state`
+writes atomically, so a crash during a save leaves the previous file intact):
+
+```python
+taus = mgsl.grid(state.tau, 2e4, 64)
+for k in range(0, 63, 8):
+    state, report = mgsl.advance(lik, state, taus[k : k + 9], options)
+    mgsl.save_state("run.npz", state)
+```
+
 `MGSLDiagnostics.concatenate(a, b)` joins the chunks' diagnostics.
 
-### Batches and devices
+### Paths, batches and devices
 
-- `batch_size`: paths per compiled batch. Batches run one after another (the last is padded,
-  so there is one compilation). `batch_size=1` runs paths one at a time, which is often fastest
-  for expensive models on CPU. Default: all paths in one batch.
-- `devices`: shard each batch over exactly these devices. The batch size (default `n_paths`)
-  must then be a multiple of `len(devices)`. Nothing is sharded unless asked.
+- `vectorize`: within a compiled call, paths run one after another by default, each with as
+  many solver iterations as it needs. `vectorize=True` batches them with `jax.vmap` instead,
+  which is faster for cheap models and on accelerators, but every solver loop then runs as long
+  as its slowest path.
+- `batch_size`: paths per compiled call. By default all paths go in one call and stay on the
+  device between steps; smaller batches bound device memory (they run one after another, and
+  the last is padded, so there is one compilation).
+- `devices`: shard each batch over exactly these devices. The batch size (default `n_paths`,
+  padded) must be a multiple of `len(devices)`. Nothing is sharded unless asked.
 
-Samples do not depend on `batch_size` or `devices`.
+Samples do not depend on these settings (beyond rounding).
 
 ## Settings
 
@@ -148,7 +171,8 @@ Samples do not depend on `batch_size` or `devices`.
 mgsl has no recommended values; check a choice with the diagnostics:
 
 - The terminal fit (`result.diagnostics.terminal.ess_fraction`) should have an ESS fraction
-  close to 1 for every path, which needs `tau_final` well above the largest eigenvalue of the
+  close to 1 for every path (with enough residuals to make that meaningful, see
+  [Diagnostics](#diagnostics)), which needs `tau_final` well above the largest eigenvalue of the
   posterior precision \(\mathrm{Id} + I(x)\) of the latent. If it is not, raise `tau_final`,
   e.g. by continuing the state with `advance`.
 - Where `ess_fraction` is low or jumps between steps, the steps are too coarse there: use more
@@ -162,12 +186,15 @@ mgsl has no recommended values; check a choice with the diagnostics:
 
 - `MGVIOptions(preconditioner=...)`: `preconditioner(x, tau)` returns \(v \mapsto M^{-1} v\),
   with \(M\) approximating \((1 + \tau)\,\mathrm{Id} + I(x)\). \(x\) and \(v\) are 1-D arrays
-  of length \(n\): the latent flattened as by `jax.flatten_util.ravel_pytree`. It is built at
-  each fit's centre and used in all its CG solves. The CG statistics report the residual of
-  the unpreconditioned system.
+  of length \(n\): the latent flattened as by `jax.flatten_util.ravel_pytree`. It is built
+  before every group of solves (each round of residual draws and each Newton step), so
+  building it should be cheap. The CG statistics report the residual of the unpreconditioned
+  system.
 - `Likelihood(fisher_operator=...)`, or `gaussian(..., linearize_once=True)`: linearise the
   forward model once per solve instead of at every Fisher application; costs the memory of the
-  linearisation per path.
+  linearisation per path. The returned functions must be pytrees (e.g.
+  `jax.tree_util.Partial`, or built from the function `jax.vjp` returns), so that operators at
+  several points can be vmapped.
 
 ## Diagnostics
 
@@ -180,10 +207,15 @@ non-zero. See [`Failures`](api/diagnostics.md) for what each count means.
 step:
 
 - `taus`: the localisation time of each step's fit;
-- `ess_fraction`: the effective sample size of the fit's mirrored residuals as importance
-  samples of the localised posterior, divided by their number. 1 means the local Gaussian is
-  exact. Plotted against `taus`, per path, it is the main convergence diagnostic. NaN where a
-  residual's CG solve did not converge;
+- `ess_fraction`: the effective sample size (ESS) of the fit's \(m = 2\,\)`n_samples_mgvi`
+  mirrored residuals as importance samples of the localised posterior, rescaled to
+  \((\mathrm{ESS} - 1)/(m - 1)\): 1 means equal weights (the local Gaussian matches the
+  localised posterior at these points), 0 means a single point carries all the weight.
+  Plotted against `taus`, per path, it is the main convergence diagnostic. NaN where a
+  residual's CG solve did not converge. It only sees the directions the \(m\) residuals
+  probe: with few residuals it can read close to 1 while the local Gaussian is still off, so
+  judge convergence with a few more residuals than the run itself needs, or on a subset of
+  paths;
 - `newton_iter`: Newton steps per fit;
 - `cg_newton`, `cg_draws`: [`CGStats`](api/diagnostics.md) of the Newton and residual-draw
   solves (mean and maximum iterations, largest relative residual, fraction stopped at

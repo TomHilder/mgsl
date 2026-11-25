@@ -14,7 +14,7 @@ class CGInfo(NamedTuple):
 
     iterations: jnp.ndarray  # int
     capped: jnp.ndarray  # bool: stopped at maxiter without meeting the tolerance
-    breakdown: jnp.ndarray  # bool: non-positive curvature or non-finite values met
+    breakdown: jnp.ndarray  # bool: stopped early without meeting the tolerance
 
 
 def norm(v, ord: int):
@@ -69,7 +69,10 @@ def cg(
     init = (jnp.asarray(0), x0, r0, z0, jnp.where(bad0, 0.0, rz0).astype(dtype), bad0)
     k, x, r, _, _, stop = lax.while_loop(cond, body, init)
     converged = norm(r, norm_ord) <= resnorm
-    info = CGInfo(iterations=k, capped=(k >= maxiter) & ~converged & ~stop, breakdown=stop)
+    capped = (k >= maxiter) & ~converged & ~stop
+    # any other exit without convergence (non-positive curvature, non-finite values, or a
+    # vanishing preconditioned residual r.M^-1 r while r itself is large) is a breakdown
+    info = CGInfo(iterations=k, capped=capped, breakdown=~converged & ~capped)
     return x, info
 
 

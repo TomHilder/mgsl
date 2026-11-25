@@ -173,11 +173,11 @@ def newton(prob: Problem, xbar, deltas, tau, y, st: Static, rt: Runtime):
     def curvature(x):
         xs = jnp.concatenate([x + deltas, x - deltas])
         if prob.operator_given:
-            # one linearisation per point and solve (unrolled: the number of points is static)
-            ops = [fl.operator(xs[i])[0] for i in range(xs.shape[0])]
+            # one linearisation per point and solve; the operators are pytrees, so vmappable
+            ops = jax.vmap(lambda xi: fl.operator(xi)[0])(xs)
 
             def mv(v):
-                return shift * v + sum(op(v) for op in ops) / len(ops)
+                return shift * v + jnp.mean(jax.vmap(lambda op: op(v))(ops), 0)
 
         else:
 
@@ -281,7 +281,9 @@ def _nifty_search(kl, mv, x, val, g, p, sd, tiny):
             return jnp.where(ok, -(g @ g) / jnp.where(ok, curv, 1.0) * g, sd)
 
         do_reset = it == NIFTY_RESET
-        q = lax.cond(do_reset, to_gradient, lambda _: q, None)
+        # a loop that runs at most once: under vmap a lax.cond would evaluate the gradient
+        # step (a curvature product) at every halving; a while_loop runs only if needed
+        _, q = lax.while_loop(lambda c: c[0], lambda c: (False, to_gradient(None)), (do_reset, q))
         a = jnp.where(do_reset, 1.0, 0.5 * a)
         return it + 1, a, q, kl(x + a * q), reset | do_reset
 
@@ -301,8 +303,10 @@ def _nifty_search(kl, mv, x, val, g, p, sd, tiny):
 
 
 def local_ess(fl: FlatLikelihood, xbar, deltas, zetas, tau, y, valid):
-    """Effective sample size fraction of the mirrored residuals as importance samples of the
-    localised posterior; NaN where the draws' solves did not converge."""
+    """Local ESS fraction of the mirrored residuals as importance samples of the localised
+    posterior, rescaled to [0, 1]: ``(ESS - 1) / (m - 1)`` for ``m`` points, so 0 means one
+    point carries all the weight and 1 means equal weights. NaN where the draws' solves did not
+    converge."""
     shift = 1.0 + tau
     lin = (y - shift * xbar) @ deltas.T  # (n,)
     quad = -0.5 * shift * jnp.sum(deltas * deltas, -1) + 0.5 * jnp.sum(deltas * zetas, -1)
@@ -311,7 +315,8 @@ def local_ess(fl: FlatLikelihood, xbar, deltas, zetas, tau, y, valid):
     lm = jax.vmap(fl.log_likelihood)(xbar - deltas) - l0
     logw = jnp.concatenate([lin + quad + lp, -lin + quad + lm])
     w = jax.nn.softmax(logw)
-    ess = 1.0 / jnp.sum(w * w) / logw.shape[0]
+    m = logw.shape[0]
+    ess = (1.0 / jnp.sum(w * w) - 1.0) / (m - 1)
     return jnp.where(valid & jnp.isfinite(ess), ess, jnp.nan)
 
 

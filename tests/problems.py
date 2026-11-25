@@ -131,11 +131,12 @@ def assert_standard_normal(z, alpha=1e-6):
     p_mean = stats.chi2.sf(chi2_mean, d)
     p_norm = stats.kstest(np.sum(z * z, 1), stats.chi2(d).cdf).pvalue
     cov = np.cov(z.T)
-    # Frobenius error of the sample covariance; sd of each entry ~ sqrt(2/n) (diag), sqrt(1/n)
-    frob = np.sqrt(np.sum((cov - np.eye(d)) ** 2) / d**2)
+    # each entry against 5 sigma of its sampling error: sqrt(2/n) on the diagonal, sqrt(1/n) off
+    sd = np.where(np.eye(d, dtype=bool), np.sqrt(2.0 / n), np.sqrt(1.0 / n))
+    worst = np.max(np.abs(cov - np.eye(d)) / sd)
     assert p_mean > alpha, f"mean off: chi2={chi2_mean:.1f} (d={d}), p={p_mean:.2e}"
     assert p_norm > alpha, f"|z|^2 not chi2_{d}: KS p={p_norm:.2e}"
-    assert frob < 6.0 * np.sqrt(2.0 / n), f"covariance off: rms entry error {frob:.3g}"
+    assert worst < 5.0, f"covariance off: worst entry {worst:.2f} sigma from the identity"
 
 
 def key(i=0):

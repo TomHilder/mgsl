@@ -25,8 +25,9 @@ class SLState:
     It holds everything needed to continue the paths: :func:`mgsl.advance` continues them and
     :func:`mgsl.finalize` draws samples from them. Random numbers are derived from the run's
     key, the path index and the global step, so a run split into several :func:`mgsl.advance`
-    calls gives exactly the samples of one uninterrupted run over the same grid points with the
-    same options.
+    calls gives the samples of one uninterrupted run over the same grid points with the same
+    options (bit for bit with the same ``batch_size``, ``devices`` and ``vectorize``; to
+    rounding otherwise).
 
     Attributes
     ----------
@@ -77,13 +78,16 @@ def _struct_meta(struct) -> tuple[str, list, list]:
 
 
 def save_state(path: str | os.PathLike, state: SLState) -> None:
-    """Save a state to an ``.npz`` file.
+    """Save a state to an ``.npz`` file (written to a temporary file, then renamed, so an
+    existing file is never left half-written).
 
     The file stores the arrays, the localisation time and step, the key, and the latent's
     structure, shapes and dtypes, which :func:`load_state` checks.
     """
     treedef, shapes, dtypes = _struct_meta(state.struct)
-    with open(path, "wb") as f:
+    path = os.fspath(path)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
         np.savez(
             f,
             format_version=np.asarray(FORMAT_VERSION),
@@ -95,6 +99,7 @@ def save_state(path: str | os.PathLike, state: SLState) -> None:
             key_impl=np.asarray(state.key_impl),
             meta=np.asarray(json.dumps({"treedef": treedef, "shapes": shapes, "dtypes": dtypes})),
         )
+    os.replace(tmp, path)  # atomic: a crash mid-write leaves the previous file intact
 
 
 def load_state(path: str | os.PathLike, like: Any) -> SLState:

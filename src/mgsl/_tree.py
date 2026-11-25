@@ -5,16 +5,22 @@ from __future__ import annotations
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from jax.flatten_util import ravel_pytree
 
 
 def is_array(x: Any) -> bool:
-    return isinstance(x, (jax.Array, np.ndarray, np.generic))
+    """Leaves passed to compiled code at run time: arrays and Python floats."""
+    return isinstance(x, (jax.Array, np.ndarray, np.generic, float)) and not isinstance(x, bool)
 
 
 class _ById:
-    """Hashable wrapper for an unhashable static leaf (compared by identity)."""
+    """Static leaf compared by identity.
+
+    Used for callables and unhashable objects: two bound methods of the same object compare
+    equal even after the object's attributes changed, so comparing them by value would reuse
+    code compiled for the old attributes."""
 
     __slots__ = ("obj",)
 
@@ -28,7 +34,9 @@ class _ById:
         return isinstance(other, _ById) and other.obj is self.obj
 
 
-def _hashable(x: Any) -> Any:
+def _static(x: Any) -> Any:
+    if callable(x):
+        return _ById(x)
     try:
         hash(x)
     except TypeError:
@@ -45,7 +53,7 @@ def partition(fields: tuple) -> tuple[list, tuple]:
     leaves, treedef = jax.tree_util.tree_flatten(fields)
     mask = tuple(is_array(leaf) for leaf in leaves)
     children = [leaf for leaf, m in zip(leaves, mask) if m]
-    static = tuple(_hashable(leaf) for leaf, m in zip(leaves, mask) if not m)
+    static = tuple(_static(leaf) for leaf, m in zip(leaves, mask) if not m)
     return children, (treedef, mask, static)
 
 
@@ -57,20 +65,31 @@ def combine(aux: tuple, children) -> tuple:
 
 
 def latent_struct(x: Any) -> Any:
-    """Shape-and-dtype pytree of a latent, rejecting complex and non-array leaves."""
+    """Shape-and-dtype pytree of a latent.
+
+    Dtypes are canonicalised (float64 becomes float32 when x64 is disabled). Complex,
+    non-floating and mixed floating dtypes are rejected."""
 
     def leaf(a):
         if isinstance(a, jax.ShapeDtypeStruct):
-            return a
-        if not hasattr(a, "shape") or not hasattr(a, "dtype"):
-            a = np.asarray(a)
-        if np.issubdtype(a.dtype, np.complexfloating):
+            shape, dtype = a.shape, a.dtype
+        else:
+            if not hasattr(a, "shape") or not hasattr(a, "dtype"):
+                a = np.asarray(a)
+            shape, dtype = np.shape(a), a.dtype
+        if jnp.issubdtype(dtype, jnp.complexfloating):
             raise TypeError("complex latents are not supported")
-        if not np.issubdtype(a.dtype, np.floating):
-            raise TypeError(f"latent leaves must be floating point, got dtype {a.dtype}")
-        return jax.ShapeDtypeStruct(np.shape(a), a.dtype)
+        if not jnp.issubdtype(dtype, jnp.floating):
+            raise TypeError(f"latent leaves must have a real floating dtype, got {dtype}")
+        return jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(dtype))
 
-    return jax.tree_util.tree_map(leaf, x)
+    struct = jax.tree_util.tree_map(leaf, x)
+    dtypes = {np.dtype(s.dtype) for s in jax.tree_util.tree_leaves(struct)}
+    if len(dtypes) > 1:
+        raise TypeError(
+            f"latent leaves must share one floating dtype, got {sorted(str(d) for d in dtypes)}"
+        )
+    return struct
 
 
 def make_unravel(struct: Any):
@@ -83,3 +102,16 @@ def make_unravel(struct: Any):
         return ravel_pytree(tree)[0].astype(dtype)
 
     return ravel, unravel, flat.size, dtype
+
+
+def unravel_batch(flat: np.ndarray, struct: Any) -> Any:
+    """Host-side unravel of ``flat`` (n, d) into the latent's structure with leading axis n
+    (the inverse of ``ravel_pytree`` per row, without moving the array to a device)."""
+    leaves, treedef = jax.tree_util.tree_flatten(struct)
+    n = flat.shape[0]
+    out, start = [], 0
+    for s in leaves:
+        size = int(np.prod(s.shape, dtype=np.int64))
+        out.append(flat[:, start : start + size].reshape((n, *s.shape)).astype(s.dtype))
+        start += size
+    return jax.tree_util.tree_unflatten(treedef, out)

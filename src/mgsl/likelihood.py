@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import warnings
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
@@ -24,6 +26,11 @@ def _as_shape_struct(s: Any) -> jax.ShapeDtypeStruct:
         raise TypeError(f"data_shape leaves must have .shape and .dtype, got {s!r}")
     if np.issubdtype(out.dtype, np.complexfloating):
         raise NotImplementedError("complex data are not supported yet")
+    if not jnp.issubdtype(out.dtype, jnp.floating):
+        raise TypeError(
+            f"data_shape leaves must have a floating dtype, got {out.dtype}: data_shape describes "
+            "the standard-normal vectors e taken by fisher_sqrt, not the data themselves"
+        )
     return out
 
 
@@ -62,10 +69,20 @@ class Likelihood:
         Structure, shapes and dtypes of the ``e`` taken by ``fisher_sqrt`` (usually those of
         the data).
     fisher_operator : callable, optional
-        ``x -> (v -> I(x) v, e -> J^T F^{1/2} e)``. If given, it is called once per solve and
-        the returned functions are applied inside the solve, instead of ``fisher(x, .)`` and
-        ``fisher_sqrt(x, .)``. Useful when linearising the model once is cheaper than
-        re-evaluating it at every application; costs the memory of the stored linearisation.
+        ``x -> (fmv, fsqrt)`` with ``fmv(v) = I(x) v`` and ``fsqrt(e) = J^T F^{1/2} e``. If
+        given, it is called once per solve and the returned functions are applied inside the
+        solve, instead of ``fisher(x, .)`` and ``fisher_sqrt(x, .)``. Useful when linearising
+        the model once is cheaper than re-evaluating it at every application; costs the memory
+        of the stored linearisation. ``fmv`` and ``fsqrt`` must be pytrees (e.g.
+        ``jax.tree_util.Partial``, or built from the function returned by ``jax.vjp``) so that
+        operators at several points can be built and applied with ``jax.vmap``.
+
+    Notes
+    -----
+    Functions (including bound methods) are compared by identity when JAX decides whether to
+    reuse compiled code, so a ``Likelihood`` rebuilt after its data changed is recompiled. Data
+    held inside a ``jax.tree_util.Partial`` are passed at run time and never recompile; data an
+    unchanged function object reads from mutable state are not seen by already compiled code.
     """
 
     def __init__(
@@ -127,34 +144,48 @@ class Likelihood:
 # Gaussian likelihood
 
 
+def _check_output(out, data):
+    if getattr(out, "shape", None) != data.shape:
+        raise ValueError(
+            f"forward(x) has shape {getattr(out, 'shape', None)}, but the data have shape "
+            f"{data.shape}; they must match exactly"
+        )
+
+
 def _gauss_log_likelihood(forward, data, weight, x):
-    r = data - forward(x)
+    f = forward(x)
+    _check_output(f, data)
+    r = data - f.astype(data.dtype)
     return -0.5 * jnp.sum(weight * r * r)
 
 
 def _gauss_fisher(forward, weight, x, v):
     # as NIFTy.re: linearise, then transpose the JVP instead of computing a separate VJP
-    _, fwd = jax.linearize(forward, x)
+    out, fwd = jax.linearize(forward, x)
+    _check_output(out, weight)
     bwd = jax.linear_transpose(fwd, x)
-    return bwd(weight * fwd(v))[0]
+    return bwd((weight * fwd(v)).astype(out.dtype))[0]
 
 
 def _gauss_fisher_sqrt(forward, sqrt_weight, x, e):
-    _, bwd = jax.vjp(forward, x)
-    return bwd(sqrt_weight * e)[0]
+    out, bwd = jax.vjp(forward, x)
+    _check_output(out, sqrt_weight)
+    return bwd((sqrt_weight * e).astype(out.dtype))[0]
+
+
+def _op_fmv(vjp, weight, out, v):
+    (jv,) = jax.linear_transpose(lambda c: vjp(c)[0], out)(v)
+    return vjp((weight * jv).astype(out.dtype))[0]
+
+
+def _op_fsqrt(vjp, sqrt_weight, out, e):
+    return vjp((sqrt_weight * e).astype(out.dtype))[0]
 
 
 def _gauss_fisher_operator(forward, weight, sqrt_weight, x):
-    _, fwd = jax.linearize(forward, x)
-    bwd = jax.linear_transpose(fwd, x)
-
-    def fmv(v):
-        return bwd(weight * fwd(v))[0]
-
-    def fsqrt(e):
-        return bwd(sqrt_weight * e)[0]
-
-    return fmv, fsqrt
+    out, vjp = jax.vjp(forward, x)  # vjp is a pytree holding the linearisation
+    _check_output(out, weight)
+    return Partial(_op_fmv, vjp, weight, out), Partial(_op_fsqrt, vjp, sqrt_weight, out)
 
 
 def gaussian(
@@ -170,8 +201,10 @@ def gaussian(
     Parameters
     ----------
     forward : callable
-        The forward model, latent ``x`` (standard-normal prior) to an array shaped like
-        ``data``. Must be differentiable and vmappable.
+        The forward model, latent ``x`` (standard-normal prior) to an array of exactly the
+        data's shape. Must be differentiable and vmappable. Its output is cast to the data's
+        dtype. Compute it in the latent's precision: a float32 forward model with a float64
+        latent limits the fits to float32 accuracy, which shows up as line-search failures.
     data : array
         The data. Masked entries may hold any value, including NaN.
     noise_std : float or array
@@ -254,15 +287,23 @@ def flatten_likelihood(lik: Likelihood, unravel: Callable, ravel: Callable) -> F
 
     if lik.fisher_operator is None:
 
-        def operator(x):
+        def plain_operator(x):
             return (lambda v: fisher(x, v)), (lambda e: fisher_sqrt(x, e))
+
+        operator = plain_operator
 
     else:
         fisher_operator = lik.fisher_operator
+        flat_in = functools.partial(_flat_tangent, ravel, unravel)
+        flat_out = functools.partial(_flat_draw, ravel)
 
-        def operator(x):
-            fmv, fsqrt = fisher_operator(unravel(x))
-            return (lambda v: ravel(fmv(unravel(v)))), (lambda e: ravel(fsqrt(e)))
+        def given_operator(x):
+            ops = fisher_operator(unravel(x))
+            if not (isinstance(ops, tuple) and len(ops) == 2):
+                raise TypeError("fisher_operator(x) must return a tuple (fmv, fsqrt)")
+            return Partial(flat_in, ops[0]), Partial(flat_out, ops[1])
+
+        operator = given_operator
 
     leaves, treedef = jax.tree_util.tree_flatten(lik.data_shape)
 
@@ -273,6 +314,14 @@ def flatten_likelihood(lik: Likelihood, unravel: Callable, ravel: Callable) -> F
         )
 
     return FlatLikelihood(ll, fisher, fisher_sqrt, operator, draw_e)
+
+
+def _flat_tangent(ravel, unravel, fmv, v):
+    return ravel(fmv(unravel(v)))
+
+
+def _flat_draw(ravel, fsqrt, e):
+    return ravel(fsqrt(e))
 
 
 # --------------------------------------------------------------------------------------------
@@ -312,8 +361,15 @@ def check_likelihood(lik: Likelihood, x, key, n_dirs: int = 8, rtol: float | Non
     ------
     ValueError
         If a function returns the wrong structure or shape, the Fisher information is negative
-        along some direction, ``fisher`` and ``fisher_sqrt`` disagree, or the Hessian of the
-        log-likelihood has the opposite sign (e.g. a negative log-likelihood was passed).
+        along some direction, ``fisher``, ``fisher_sqrt`` and ``fisher_operator`` (if given)
+        disagree, or the Hessian of the log-likelihood has the opposite sign (e.g. a negative
+        log-likelihood was passed).
+
+    Warns
+    -----
+    UserWarning
+        If the Hessian-to-Fisher ratio is outside [2/3, 3/2], which suggests a missing weight
+        or factor (or a point far from the data).
     """
     struct = _tree.latent_struct(x)
     ravel, unravel, d, dtype = _tree.make_unravel(struct)
@@ -353,6 +409,22 @@ def check_likelihood(lik: Likelihood, x, key, n_dirs: int = 8, rtol: float | Non
         return a, b, -(v @ hv)
 
     a, b, c = (np.asarray(t) for t in jax.vmap(forms)(vs))
+    if lik.fisher_operator is not None:
+        fmv, fsqrt = fl.operator(x_flat)
+        a_op = np.asarray(jax.vmap(lambda v: v @ fmv(v))(vs))
+        fsqrt_op_t = jax.linear_transpose(fsqrt, e0)
+        b_op = np.asarray(
+            jax.vmap(
+                lambda v: sum(jnp.sum(t**2) for t in jax.tree_util.tree_leaves(fsqrt_op_t(v)))
+            )(vs)
+        )
+        for name, val in (("fmv", a_op), ("fsqrt", b_op)):
+            if np.any(np.abs(val - a) > rtol * np.maximum(np.abs(val), np.abs(a)) + 1e-30):
+                raise ValueError(
+                    f"fisher_operator's {name} disagrees with fisher: the quadratic forms "
+                    f"differ (max relative difference "
+                    f"{np.max(np.abs(val - a) / np.maximum(np.abs(a), 1e-300)):.3g})"
+                )
     scale = np.maximum(np.abs(a), np.abs(b)).max() + np.finfo(dtype).tiny
     if np.any(a < -rtol * scale):
         raise ValueError("fisher is not positive semi-definite (v . fisher(x, v) < 0)")
@@ -367,5 +439,14 @@ def check_likelihood(lik: Likelihood, x, key, n_dirs: int = 8, rtol: float | Non
             "the Hessian of log_likelihood has the opposite sign to the Fisher information "
             f"(ratio {ratio:.3g}): log_likelihood is probably a negative log-likelihood "
             "(e.g. NIFTy.re's energy)"
+        )
+    if a.sum() > 0 and not 2 / 3 <= ratio <= 1.5:
+        warnings.warn(
+            f"the Hessian of log_likelihood is {ratio:.3g} times the Fisher information along "
+            "random directions (about 1 is expected near the data for a well-specified model). "
+            "Check for missing noise weights in fisher, a missing factor 1/2 in "
+            "log_likelihood, or evaluate at a point closer to the posterior.",
+            UserWarning,
+            stacklevel=2,
         )
     return {"fisher": a, "fisher_sqrt": b, "hessian": c, "hessian_ratio": ratio}

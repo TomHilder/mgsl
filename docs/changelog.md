@@ -21,7 +21,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
   key, the path and the global step, so chunked runs equal unchunked ones.
 - Always-on `Failures` counts with warnings; optional `MGSLDiagnostics` (local ESS fraction,
   CG and Newton statistics, terminal fit).
-- Batches of paths run in a Python loop (`batch_size`), optionally sharded over given
-  `devices`.
+- Each localisation step is one compiled call, run from a Python loop that prints progress
+  per step; paths run one after another within a call (or batched with `vectorize=True`), in
+  batches of `batch_size`, optionally sharded over given `devices`.
 - Power-user options: a CG preconditioner, `Likelihood(fisher_operator=...)`.
 - `mgsl.nifty`: `from_likelihood`, `to_samples` (NIFTy.re is optional).

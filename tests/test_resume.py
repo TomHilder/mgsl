@@ -100,7 +100,9 @@ def test_save_load_roundtrip(tmp_path):
     with pytest.raises(ValueError, match="leaf"):
         mgsl.load_state(path, like={"a": jnp.zeros((3, 2)), "b": jnp.zeros(4)})
     with pytest.raises(ValueError, match="leaf"):
-        mgsl.load_state(path, like={"a": jnp.zeros((2, 3), jnp.float32), "b": jnp.zeros(4)})
+        mgsl.load_state(
+            path, like={"a": jnp.zeros((2, 3), jnp.float32), "b": jnp.zeros(4, jnp.float32)}
+        )
 
 
 def test_load_rejects_other_format_version(tmp_path):
