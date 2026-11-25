@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-11-26
+
+First release. MGSL is an in-progress research project: expect bugs, quirks and breaking
+changes, and see the user guide for what is not yet known about the method.
+
 ### Added
 
 - `sample`, and the three steps it chains: `init`, `advance`, `finalize`. Paths start at
@@ -26,3 +31,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
   batches of `batch_size`, optionally sharded over given `devices`.
 - Power-user options: a CG preconditioner, `Likelihood(fisher_operator=...)`.
 - `mgsl.nifty`: `from_likelihood`, `to_samples` (NIFTy.re is optional).
+- Conjugate gradients judge convergence on the true residual, recomputed every `refresh`
+  iterations (`CGOptions(refresh=20)`) and at apparent convergence, and stop when their
+  objective stops decreasing.
+- Newton-CG with NIFTy.re's line search (default) or a backtracking Armijo search
+  (`NewtonOptions(line_search="armijo")`).
+- Version from git tags; tagging `vX.Y.Z` makes a GitHub Release (no PyPI upload yet).

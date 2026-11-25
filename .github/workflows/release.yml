@@ -1,0 +1,57 @@
+name: release
+
+# Push a tag vX.Y.Z on main to make a GitHub Release (tests, build, release notes from
+# docs/changelog.md, sdist and wheel attached). No PyPI upload and no docs deployment yet.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs reads the version from the tag
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # NIFTy.re is a local-path test dependency, so CI installs only what the core tests need;
+      # the NIFTy.re tests skip themselves without it.
+      - name: Test
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e . pytest scipy
+          python -m pytest -q -p no:warnings
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install -U build twine
+          python -m build
+          python -m twine check dist/*
+
+      - name: Check the version matches the tag
+        run: |
+          version=$(python -c "import mgsl; print(mgsl.__version__)")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "version $version != tag $GITHUB_REF_NAME"; exit 1; }
+
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' docs/changelog.md > notes.md
+          test -s notes.md || { echo "no changelog section for $version"; exit 1; }
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "mgsl $GITHUB_REF_NAME" --notes-file notes.md
