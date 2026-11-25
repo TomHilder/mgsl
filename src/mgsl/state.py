@@ -24,8 +24,9 @@ class SLState:
 
     It holds everything needed to continue the paths: :func:`mgsl.advance` continues them and
     :func:`mgsl.finalize` draws samples from them. Random numbers are derived from the run's
-    key, the path index and the global step, so continuing a state gives exactly the samples
-    an uninterrupted run would have given.
+    key, the path index and the global step, so a run split into several :func:`mgsl.advance`
+    calls gives exactly the samples of one uninterrupted run over the same grid points with the
+    same options.
 
     Attributes
     ----------

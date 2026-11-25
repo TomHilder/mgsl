@@ -1,39 +1,67 @@
 # User guide
 
+Notation: \(x\) is the latent (dimension \(n\)), \(\mathrm{Id}\) the identity, \(I(x)\) the
+Fisher information of the likelihood at \(x\), and \(\tau\) the localisation time.
+
 ## Describing the problem
 
-mgsl needs a latent \(x\) with prior \(\mathcal N(0, I)\) (any pytree of real arrays) and a
-[`Likelihood`](api/likelihood.md) with
+### Whitened latent
 
-- `log_likelihood(x)`: \(\log p(d \mid x)\), up to a constant;
+mgsl assumes the prior on the latent is \(\mathcal N(0, \mathrm{Id})\). A model with another
+prior is written in terms of standard-normal variables: a parameter \(z \sim \mathcal N(m,
+LL^\top)\) becomes \(z = m + Lx\), a log-normal amplitude becomes \(\exp(\mu + s\,x)\), a
+Gaussian process becomes its whitened Fourier or Karhunen-Loève coefficients, and so on. The
+forward model starts from \(x\):
+
+```python
+def forward(x):
+    z = m + L @ x  # prior N(m, L L^T) on z
+    return model(z)  # prediction of the data
+```
+
+### The likelihood
+
+A [`Likelihood`](api/likelihood.md) has
+
+- `log_likelihood(x)`: \(\log p(\text{data} \mid x)\), up to a constant;
 - `fisher(x, v)`: the Fisher information \(I(x) = J^\top F J\) applied to a tangent \(v\)
-  (\(J\) the Jacobian of the forward model, \(F\) the Fisher metric of the noise model; no
-  prior term);
-- `fisher_sqrt(x, e)`: \(J^\top F^{1/2} e\), so that it has covariance \(I(x)\) for
-  \(e \sim \mathcal N(0, I)\);
-- `data_shape`: the shape of \(e\).
+  (\(J\) the Jacobian of the forward model, \(F\) the Fisher metric of the noise model, e.g.
+  \(\mathrm{diag}(1/\sigma^2)\) for Gaussian noise); no prior term;
+- `fisher_sqrt(x, e)`: \(J^\top F^{1/2} e\), which has covariance \(I(x)\) for
+  \(e \sim \mathcal N(0, \mathrm{Id})\);
+- `data_shape`: a pytree of `jax.ShapeDtypeStruct` with the structure, shapes and dtypes of
+  \(e\) (usually those of the data).
 
 For Gaussian noise, `mgsl.gaussian(forward, data, noise_std=..., mask=...)` builds all four.
-Masked data points get zero weight (they may hold NaN).
+`noise_std` is a scalar or an array of the data's shape. Masked data points (`mask` False) get
+zero weight and may hold NaN. For other noise models, write the four entries by hand, e.g.
+with `jax.jvp` and `jax.vjp` of the forward model.
 
-`mgsl.check_likelihood(lik, x, key)` checks that the functions agree with each other: it catches
-a negative log-likelihood passed as `log_likelihood`, a data-space Fisher matrix instead of
-\(J^\top F J\), a Fisher that is not positive semi-definite, and wrong output shapes.
+`mgsl.check_likelihood(lik, x, key)` checks that the functions agree with each other. It raises
+`ValueError` naming the problem: a negative log-likelihood passed as `log_likelihood`, a
+data-space Fisher matrix instead of \(J^\top F J\), a Fisher information that is not positive
+semi-definite, or wrong output shapes. It returns the quadratic forms it compared. Run it at
+zeros and near the posterior (e.g. at a fit's centre).
 
-Arrays held by a `Likelihood` through `jax.tree_util.Partial` (as `gaussian` does) are passed
-to compiled code at run time, so new data of the same shape does not recompile. Arrays captured
-by a plain closure are compiled in as constants.
+Arrays held by a `Likelihood` through `jax.tree_util.Partial` (as `gaussian` does) are passed to
+compiled code at run time, so new data of the same shape does not recompile. Arrays captured by
+a plain closure (a `lambda` or nested function) are compiled in as constants.
 
 ### NIFTy.re models
 
 ```python
+import operator
+
 import nifty.re as jft
+from jax.tree_util import Partial
+
 import mgsl.nifty
 
-lh = jft.Gaussian(data, noise_std_inv=lambda r: r / sigma).amend(model)
+noise_std_inv = Partial(operator.mul, 1 / sigma)  # NIFTy.re takes an operator here
+lh = jft.Gaussian(data, noise_std_inv=noise_std_inv).amend(model)  # model: a jft.Model
 lik = mgsl.nifty.from_likelihood(lh)
 result = mgsl.sample(key, lik, mu, schedule, options)
-samples = mgsl.nifty.to_samples(result)   # nifty.re Samples (pos = sample mean)
+samples = mgsl.nifty.to_samples(result)  # nifty.re Samples, pos = the sample mean
 ```
 
 The NIFTy.re likelihood must be amended with the model, so that its primals are the latent with
@@ -50,55 +78,93 @@ state, report = mgsl.advance(lik, state, mgsl.grid(1.0, 2e4, 64), options)
 samples, final = mgsl.finalize(lik, state, options)
 ```
 
+The local fits are Gaussians \(\mathcal N(\bar x, \Lambda^{-1})\), with centre \(\bar x\) and
+precision \(\Lambda = (1 + \tau)\,\mathrm{Id} + I(\bar x)\) at localisation time \(\tau\). A
+*residual* is a draw \(\delta \sim \mathcal N(0, \Lambda^{-1})\), made by solving
+\(\Lambda\delta = \zeta\) with conjugate gradients (CG) for a \(\zeta \sim \mathcal N(0, \Lambda)\).
+
 - `init` starts each path from \(y = \tau_0(\mu + \delta) + \sqrt{\tau_0}\,\xi\), with
-  \(\delta\) a residual of the Gaussian at the centre \(\mu\). Small \(\tau_0\) approaches
-  plain stochastic localisation from \(y = 0\); larger \(\tau_0\) skips the early steps but
-  relies more on the centre. Check that the centre (e.g. from `mgvi_fit`) is converged.
-- `advance` moves every path along a grid of localisation times.
-- `finalize` fits each path at its current \(\tau\) and draws one sample. It does not change the
-  state.
+  \(\delta\) a residual at the centre \(\mu\) (at \(\tau = 0\)) and \(\xi\) standard normal.
+  Small \(\tau_0\) approaches plain stochastic localisation from \(y = 0\); larger \(\tau_0\)
+  skips early steps but relies more on the centre. Check that the centre is converged, e.g.
+  by running `mgvi_fit` with more rounds and comparing.
+- `advance` moves every path along a grid of localisation times. At each grid point it fits the
+  localised posterior (warm-started from the previous fit) and sets
+  \(y \leftarrow y + \Delta\tau\,(\bar x + \delta) + \sqrt{\Delta\tau}\,\xi\), with
+  \(\Delta\tau\) the distance to the next grid point.
+- `finalize` fits each path at its current \(\tau\) and returns \(\bar x + \delta\). It does not
+  change the state.
+
+The run uses the dtype of the centre `mu`. Float64 (`jax.config.update("jax_enable_x64",
+True)`) is recommended; float32 works with looser attainable CG tolerances.
 
 ### Resuming and checkpointing
 
 The state holds everything needed to continue: the paths' observations and centres, the
 localisation time and step count, the run's key and the latent's structure. Random numbers are
-derived from the key, the path and the global step, so continuing a state gives exactly the
-samples an uninterrupted run would have given.
+derived from the key, the path and the global step, so a run split into several `advance`
+calls gives exactly the samples of one uninterrupted run over the same grid points with the
+same options.
 
 ```python
 mgsl.save_state("run.npz", result.state)
-state = mgsl.load_state("run.npz", like=x0)          # like=: the latent's structure
+state = mgsl.load_state("run.npz", like=x0)  # x0: a latent (or ShapeDtypeStructs)
 state, report = mgsl.advance(lik, state, mgsl.grid(state.tau, 1e5, 16), options)
-samples, _ = mgsl.finalize(lik, state, options)
+samples, final = mgsl.finalize(lik, state, options)
 ```
 
-For crash safety, advance in chunks and save the state after each one.
+`load_state` raises `ValueError` if `like` does not match the saved structure, shapes or
+dtypes. For crash safety, advance in chunks and save the state after each one;
+`MGSLDiagnostics.concatenate(a, b)` joins the chunks' diagnostics.
 
 ### Batches and devices
 
-- `batch_size`: paths per compiled batch; batches run one after another (the last is padded,
+- `batch_size`: paths per compiled batch. Batches run one after another (the last is padded,
   so there is one compilation). `batch_size=1` runs paths one at a time, which is often fastest
   for expensive models on CPU. Default: all paths in one batch.
-- `devices`: shard each batch over exactly these devices. Nothing is sharded unless asked.
+- `devices`: shard each batch over exactly these devices. The batch size (default `n_paths`)
+  must then be a multiple of `len(devices)`. Nothing is sharded unless asked.
 
 Samples do not depend on `batch_size` or `devices`.
 
 ## Settings
 
-- [`Schedule`](api/options.md): `n_paths`, `tau_start`, `tau_final`, `n_tau` (geometric grid).
-- [`MGVIOptions`](api/options.md): `n_samples_mgvi` and `n_iter_mgvi` (required), Newton and
-  CG settings. Names, defaults and stopping rules follow NIFTy.re's `optimize_kl`:
-  `CGOptions(tol, atol, miniter, maxiter)` for the residual draws;
-  `NewtonOptions(maxiter, xtol, absdelta, cg, adaptive_cg, line_search)` for the fits.
-  `line_search="nifty"` (default) is NIFTy.re's line search; `"armijo"` is the backtracking
-  Armijo search of the original MGSL implementation.
+- [`Schedule`](api/options.md): `n_paths`, `tau_start`, `tau_final`, `n_tau` (a geometric grid
+  of `n_tau` points from `tau_start` to `tau_final`).
+- [`MGVIOptions`](api/options.md): `n_samples_mgvi` (residuals per fit, each also used
+  mirrored, \(\bar x \pm \delta\)) and `n_iter_mgvi` (rounds per fit), both required; Newton
+  and CG settings. Names, defaults and stopping rules follow NIFTy.re's `optimize_kl`:
+  `CGOptions(tol=1e-5, atol=0, miniter, maxiter)` for the residual draws and
+  `NewtonOptions(maxiter, xtol=1e-5, absdelta, cg, adaptive_cg=True, line_search="nifty")` for
+  the fits.
+  - `line_search="nifty"`: NIFTy.re's line search (accepts any step that does not increase
+    the objective; restarts along the gradient after six halvings; gives up after nine).
+  - `line_search="armijo"`: backtracking until a sufficient decrease (Armijo condition) holds,
+    with a steepest-descent fallback for bad Newton directions; stricter about progress and
+    never gives up after a fixed number of tries.
+
+### Choosing the settings
+
+mgsl has no recommended values; check a choice with the diagnostics:
+
+- The terminal fit (`result.diagnostics.terminal.ess_fraction`) should have an ESS fraction
+  close to 1 for every path, which needs `tau_final` well above the largest eigenvalue of the
+  posterior precision \(\mathrm{Id} + I(x)\) of the latent. If it is not, raise `tau_final`,
+  e.g. by continuing the state with `advance`.
+- Where `ess_fraction` is low or jumps between steps, the steps are too coarse there: use more
+  grid points (`n_tau`).
+- Failure warnings (capped CG solves, line-search failures) mean the solves are not converged:
+  raise the corresponding `maxiter`, or check the likelihood.
+- `n_iter_mgvi=1` is often enough inside a run, because each fit starts from the previous
+  path's centre; the cold-start `mgvi_fit` needs more rounds.
 
 ### Power-user options
 
-- `MGVIOptions(preconditioner=...)`: `preconditioner(x, tau)` returns \(v \mapsto M^{-1} v\)
-  approximating the inverse of \((1 + \tau) I + I(x)\) (flat vectors). It is built at each fit's
-  centre and used in all its CG solves. The CG statistics report the residual of the
-  unpreconditioned system.
+- `MGVIOptions(preconditioner=...)`: `preconditioner(x, tau)` returns \(v \mapsto M^{-1} v\),
+  with \(M\) approximating \((1 + \tau)\,\mathrm{Id} + I(x)\). \(x\) and \(v\) are 1-D arrays
+  of length \(n\): the latent flattened as by `jax.flatten_util.ravel_pytree`. It is built at
+  each fit's centre and used in all its CG solves. The CG statistics report the residual of
+  the unpreconditioned system.
 - `Likelihood(fisher_operator=...)`, or `gaussian(..., linearize_once=True)`: linearise the
   forward model once per solve instead of at every Fisher application; costs the memory of the
   linearisation per path.
@@ -108,15 +174,20 @@ Samples do not depend on `batch_size` or `devices`.
 `result.failures` counts, per path, residual and Newton CG solves that stopped at `maxiter`,
 CG breakdowns, line-search fallbacks and failures, and fits that started at a non-finite
 objective ("frozen" paths). It is always recorded, and a warning is issued whenever a count is
-non-zero.
+non-zero. See [`Failures`](api/diagnostics.md) for what each count means.
 
-`result.diagnostics` (with `calculate_diagnostics=True`, the default) holds per path and step:
+`result.diagnostics` (with `calculate_diagnostics=True`, the default) holds, per path and
+step:
 
-- `ess_fraction`: the effective sample size of the fit's mirrored residuals as importance samples
-  of the localised posterior, divided by their number. 1 means the local Gaussian approximation
-  is exact. Plotted against `taus` per path, it is the main convergence diagnostic. NaN where a
-  residual's CG solve did not converge.
-- `newton_iter`, `cg_newton`, `cg_draws`: iterations, residuals and cap fractions.
+- `taus`: the localisation time of each step's fit;
+- `ess_fraction`: the effective sample size of the fit's mirrored residuals as importance
+  samples of the localised posterior, divided by their number. 1 means the local Gaussian is
+  exact. Plotted against `taus`, per path, it is the main convergence diagnostic. NaN where a
+  residual's CG solve did not converge;
+- `newton_iter`: Newton steps per fit;
+- `cg_newton`, `cg_draws`: [`CGStats`](api/diagnostics.md) of the Newton and residual-draw
+  solves (mean and maximum iterations, largest relative residual, fraction stopped at
+  `maxiter`);
 - `terminal`: the same for the final fit that produced the samples.
 
 ```python
@@ -126,5 +197,5 @@ d = result.diagnostics
 plt.semilogx(d.taus, d.ess_fraction.T, color="k", alpha=0.2)
 ```
 
-Turning diagnostics off saves \(2\,\)`n_samples_mgvi`\(+1\) log-likelihood evaluations and one
+Turning diagnostics off saves `2 * n_samples_mgvi + 1` log-likelihood evaluations and one
 Fisher application per solve, per fit.

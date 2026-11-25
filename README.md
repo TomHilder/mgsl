@@ -19,7 +19,8 @@ schedule = mgsl.Schedule(n_paths=256, tau_start=1.0, tau_final=2e4, n_tau=64)
 result = mgsl.sample(key2, lik, fit.mean, schedule, options)
 ```
 
-Documentation: `uv run mkdocs serve` (user guide and API reference in `docs/`).
+Install with `uv add "mgsl @ git+ssh://git@github.com/TomHilder/mgsl.git"`. A runnable quick
+start, the user guide and the API reference are in `docs/` (`uv run mkdocs serve`).
 
 ## Development
 

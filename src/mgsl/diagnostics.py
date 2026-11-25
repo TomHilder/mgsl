@@ -155,7 +155,9 @@ class Failures(NamedTuple):
         warnings.warn(
             f"mgsl {where}: solver failures: "
             + ", ".join(parts)
-            + ". See Failures for what each count means.",
+            + ". See the docstring of mgsl.Failures (result.failures) for what each count "
+            "means; raising the CG or Newton maxiter, or checking the likelihood with "
+            "mgsl.check_likelihood, usually helps.",
             RuntimeWarning,
             stacklevel=3,
         )

@@ -360,7 +360,7 @@ class MGVIResult(NamedTuple):
         ``n_samples_mgvi`` residuals drawn at the centre, leading axis ``n_samples_mgvi``; the
         samples of the fitted Gaussian are ``mean +- residuals``.
     failures : Failures
-        Solver failure counts of the fit (single path).
+        Solver failure counts of the fit (arrays of shape ``(1,)``).
     """
 
     mean: Any

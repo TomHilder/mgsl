@@ -36,8 +36,10 @@ class Likelihood:
     """A likelihood on a latent with a standard-normal prior.
 
     The latent ``x`` can be any pytree of real floating-point arrays. The prior on ``x`` is
-    always ``N(0, I)``: models with other priors must be written in standardised (whitened)
-    coordinates, as in NIFTy.re.
+    always ``N(0, Id)``: a model with another prior is written in standardised (whitened)
+    coordinates. For example, a parameter ``z ~ N(m, L L^T)`` becomes ``z = m + L x``, and a
+    positive parameter with a log-normal prior becomes ``exp(mu + s x)``; the forward model
+    then starts from ``x``.
 
     The object is a pytree: arrays it holds (for example data captured by a
     ``jax.tree_util.Partial``) are passed to compiled code at run time, and everything else
@@ -51,13 +53,14 @@ class Likelihood:
     fisher : callable
         ``(x, v) -> I(x) v``: the Fisher information of the likelihood with respect to the
         latent, ``J^T F J`` (``J`` the Jacobian of the forward model, ``F`` the Fisher metric
-        of the noise model), applied to a tangent ``v`` with the structure of ``x``. Must not
-        include the prior.
+        of the noise model, e.g. ``diag(1 / sigma^2)`` for Gaussian noise), applied to a
+        tangent ``v`` with the structure of ``x``. Must not include the prior.
     fisher_sqrt : callable
         ``(x, e) -> J^T F^{1/2} e`` for ``e`` with the structure of ``data_shape``, such that
         ``fisher_sqrt(x, e)`` with ``e ~ N(0, I)`` has covariance ``I(x)``.
     data_shape : pytree of jax.ShapeDtypeStruct
-        Shape and dtype of the ``e`` taken by ``fisher_sqrt``.
+        Structure, shapes and dtypes of the ``e`` taken by ``fisher_sqrt`` (usually those of
+        the data).
     fisher_operator : callable, optional
         ``x -> (v -> I(x) v, e -> J^T F^{1/2} e)``. If given, it is called once per solve and
         the returned functions are applied inside the solve, instead of ``fisher(x, .)`` and
@@ -290,7 +293,8 @@ def check_likelihood(lik: Likelihood, x, key, n_dirs: int = 8, rtol: float | Non
     ----------
     lik : Likelihood
     x : pytree
-        A latent value (e.g. the prior mean, zeros, or a fit's centre).
+        A latent value. Run it at a few points, e.g. zeros (the prior mean) and a fit's centre:
+        the Hessian comparison is most informative near the posterior.
     key : jax.Array
         Random key for the directions.
     n_dirs : int

@@ -72,7 +72,7 @@ def _advance_kernel(lik, pre, rt, key_data, taus, step0, paths, y, xbar, *, impl
             kt = _path_key(key_data, impl, _TRANSITION, p, k)
             xbar, deltas, _, stats = local_fit(prob, kf, xbar, tau, y, st, rt)
             xi = jax.random.normal(kt, y.shape, y.dtype)
-            # predictive transition: X ~ N(xbar, Lambda^-1) over the step, drawn as xbar + delta
+            # over the step the unknown is drawn from the local Gaussian: X = xbar + delta
             y = y + dtau * (xbar + deltas[0]) + jnp.sqrt(dtau) * xi
             return (y, xbar), stats
 
@@ -213,10 +213,12 @@ def init(
 ) -> SLState:
     """Start ``n_paths`` localisation paths at ``tau_start``.
 
-    Each path starts from ``y = tau_start (mu + delta) + sqrt(tau_start) xi``, with ``delta`` a
-    residual of the Gaussian with centre ``mu`` and the posterior metric at ``mu``, and ``xi``
-    standard normal; its first local fit is warm-started at ``mu``. If ``mu`` and the metric
-    describe the posterior exactly, this is the exact localisation process at ``tau_start``.
+    Each path starts from ``y = tau_start (mu + delta) + sqrt(tau_start) xi``, with ``xi``
+    standard normal and ``delta ~ N(0, Lambda^{-1})`` a draw from the Gaussian approximation at
+    ``mu``, whose precision is ``Lambda = Id + I(mu)`` (identity plus Fisher information). Each
+    path's first local fit is warm-started at ``mu``. If ``N(mu, Lambda^{-1})`` were the exact
+    posterior, ``y`` would follow the exact localisation process at ``tau_start``. Solver
+    failures of these draws are reported by a warning.
 
     Parameters
     ----------
@@ -237,6 +239,12 @@ def init(
     -------
     SLState
     """
+    state, failures = _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices)
+    failures.warn("init")
+    return state
+
+
+def _init(key, lik, mu, n_paths, tau_start, options, batch_size, devices):
     _check_lik(lik)
     _check_options(options)
     struct = _check_centre(mu)
@@ -262,15 +270,15 @@ def init(
         hstruct=HashableStruct(struct),
     )
     zeros = np.zeros(n_paths, np.int32)
-    Failures(
+    failures = Failures(
         draw_cg_capped=np.asarray(solves.capped),
         newton_cg_capped=zeros,
         cg_breakdowns=np.asarray(solves.breakdown),
         sd_fallbacks=zeros,
         line_search_failures=zeros,
         nonfinite=zeros,
-    ).warn("init")
-    return SLState(
+    )
+    state = SLState(
         y=np.asarray(y),
         xbar=np.broadcast_to(np.asarray(mu_flat), (n_paths, d)).copy(),
         tau=tau_start,
@@ -279,6 +287,7 @@ def init(
         key_impl=impl,
         struct=struct,
     )
+    return state, failures
 
 
 def _check_state(state):
@@ -299,9 +308,12 @@ def advance(
 ) -> tuple[SLState, Report]:
     """Advance every path of ``state`` along the grid ``taus``.
 
-    At each grid point the path's localised posterior is fitted by MGVI (warm-started from the
-    previous centre) and the observation is advanced with the predictive transition
-    ``y += dtau (xbar + delta) + sqrt(dtau) xi``.
+    At each grid point ``tau`` the path's localised posterior is fitted by MGVI, warm-started
+    from the previous centre. The fit is a Gaussian ``N(xbar, Lambda^{-1})`` with precision
+    ``Lambda = (1 + tau) Id + I(xbar)``. The observation then moves to the next grid point,
+    ``dtau`` later, as if the unknown were a draw from that Gaussian:
+    ``y += dtau (xbar + delta) + sqrt(dtau) xi``, with ``delta ~ N(0, Lambda^{-1})`` and
+    ``xi ~ N(0, Id)`` fresh for every step and path.
 
     Parameters
     ----------
@@ -384,9 +396,18 @@ def finalize(
 ) -> tuple[Any, Report]:
     """Draw one sample per path from ``state``.
 
-    Fits each path's localised posterior at ``state.tau`` and returns ``xbar + delta`` with
-    ``delta`` a fresh residual of that fit. The state is not changed, so it can still be
-    advanced further and finalised again.
+    Fits each path's localised posterior at ``state.tau`` and returns ``xbar + delta``, with
+    ``xbar`` the fit's centre and ``delta ~ N(0, Lambda^{-1})`` a draw from it (see
+    :func:`advance`). The state is not changed, so it can still be advanced further and
+    finalised again.
+
+    Parameters
+    ----------
+    lik : Likelihood
+    state : SLState
+    options : MGVIOptions
+    calculate_diagnostics, batch_size, devices
+        See :func:`sample`.
 
     Returns
     -------
@@ -434,15 +455,15 @@ class Result:
     Attributes
     ----------
     samples : pytree
-        Structured like the latent, leading axis ``n_paths``.
+        Structured like the latent, with leading axis ``n_paths``; NumPy arrays on the host.
     state : SLState
-        The paths' state at ``tau_final`` (before the terminal fit); continue it with
-        :func:`advance`.
+        The paths' state at ``tau_final``; continue it with :func:`advance`.
     schedule : Schedule
     diagnostics : MGSLDiagnostics or None
         None if ``calculate_diagnostics=False``.
     failures : Failures
-        Always present.
+        Solver failure counts of the whole run (start, steps and terminal fit); always
+        present.
     """
 
     samples: Any
@@ -466,7 +487,12 @@ def sample(
     """Draw ``schedule.n_paths`` posterior samples with MGSL.
 
     Chains :func:`init` (at ``schedule.tau_start`` from centre ``mu``), :func:`advance` (over
-    ``schedule.taus``) and :func:`finalize`.
+    ``schedule.taus``) and :func:`finalize`. The samples are approximate: each step replaces
+    the localised posterior by a local Gaussian fit. For a linear model with Gaussian noise and
+    converged solves they are exact.
+
+    The run uses the dtype of ``mu`` (float64 needs ``jax_enable_x64``; float32 works, with
+    looser attainable solver tolerances).
 
     Parameters
     ----------
@@ -474,7 +500,8 @@ def sample(
         Random key (typed or legacy).
     lik : Likelihood
     mu : pytree
-        Centre the paths start from, e.g. ``mgvi_fit(...).mean``.
+        Centre the paths start from, e.g. ``mgvi_fit(...).mean``. Its structure, shapes and
+        dtypes define the latent.
     schedule : Schedule
     options : MGVIOptions
     calculate_diagnostics : bool
@@ -495,15 +522,8 @@ def sample(
     """
     if not isinstance(schedule, Schedule):
         raise TypeError(f"expected a Schedule, got {type(schedule).__name__}")
-    state = init(
-        key,
-        lik,
-        mu,
-        n_paths=schedule.n_paths,
-        tau_start=schedule.tau_start,
-        options=options,
-        batch_size=batch_size,
-        devices=devices,
+    state, ifail = _init(
+        key, lik, mu, schedule.n_paths, schedule.tau_start, options, batch_size, devices
     )
     state, rep = advance(
         lik,
@@ -524,7 +544,7 @@ def sample(
         devices=devices,
         _warn=False,
     )
-    failures = rep.failures + frep.failures
+    failures = ifail + rep.failures + frep.failures
     failures.warn("sample")
     diag = rep.diagnostics.with_terminal(frep.diagnostics) if calculate_diagnostics else None
     return Result(samples, state, schedule, diag, failures)

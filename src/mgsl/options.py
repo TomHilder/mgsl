@@ -75,7 +75,8 @@ class Schedule:
     tau_start : float
         Localisation time at which the paths start (> 0).
     tau_final : float
-        Localisation time of the last step and of the terminal fit.
+        Localisation time the paths reach; the terminal fit that produces the samples is made
+        there.
     n_tau : int
         Number of grid points (geometric from ``tau_start`` to ``tau_final``), at least 2.
         A run makes ``n_tau - 1`` steps.
@@ -106,21 +107,22 @@ class Schedule:
 
 @dataclass(frozen=True)
 class CGOptions:
-    """Stopping rules of a conjugate-gradient solve, with NIFTy.re's names and defaults.
+    """Stopping rules of a conjugate-gradient solve.
 
-    The solve stops once the residual norm is below ``max(tol * |b|, atol)``, after at least
-    ``miniter`` and at most ``maxiter`` iterations.
+    The solve stops once the residual 2-norm is below ``max(tol * |b|, atol)``, after at least
+    ``miniter`` and at most ``maxiter`` iterations. Names and defaults are those of NIFTy.re's
+    conjugate gradients.
 
     Parameters
     ----------
-    tol : float
-        Tolerance relative to the norm of the right-hand side.
-    atol : float
+    tol : float, default 1e-5
+        Tolerance relative to the norm of the right-hand side ``b``.
+    atol : float, default 0
         Absolute tolerance on the residual norm.
     miniter : int, optional
         Minimum number of iterations. Default ``min(6, maxiter)``.
     maxiter : int, optional
-        Maximum number of iterations. Default ``min(200, 20 d)`` for a system of size ``d``.
+        Maximum number of iterations. Default ``min(200, 20 d)`` for a latent of dimension ``d``.
     """
 
     tol: float = 1e-5
@@ -154,34 +156,36 @@ class CGOptions:
 class NewtonOptions:
     """Stopping rules of the Newton-CG minimisation in each local fit.
 
-    Names and meanings follow NIFTy.re's Newton-CG: the minimisation stops after ``maxiter``
-    steps, or once the step taken has 1-norm ``<= xtol * d``, or once the objective decreased by
-    less than ``absdelta``.
+    The minimisation stops after ``maxiter`` steps, once the step taken has 1-norm
+    ``<= xtol * d`` (``d`` the latent dimension), or once the objective decreased by less than
+    ``absdelta``. Names, defaults and stopping rules are those of NIFTy.re's Newton-CG.
 
     Parameters
     ----------
     maxiter : int
         Maximum number of Newton steps per round. Required.
-    xtol : float
-        Step-size tolerance, scaled by the dimension ``d``.
+    xtol : float, default 1e-5
+        Step-size tolerance, multiplied by the dimension ``d``.
     absdelta : float, optional
         Stop when the objective decreased by less than this. Off by default.
-    cg : CGOptions
+    cg : CGOptions, default CGOptions()
         Iteration limits of the inner CG solves (and their tolerances if ``adaptive_cg`` is
         False).
-    adaptive_cg : bool
-        If True (default, as NIFTy.re), the inner CG stops at a residual 1-norm of
-        ``min(0.5, sqrt(|g|_1)) |g|_1`` for gradient ``g``, ignoring ``cg.tol`` and ``cg.atol``.
+    adaptive_cg : bool, default True
+        If True, the inner CG stops at a residual 1-norm of ``min(0.5, sqrt(|g|_1)) |g|_1`` for
+        gradient ``g`` (an inexact Newton method), ignoring ``cg.tol`` and ``cg.atol``.
     line_search : {"nifty", "armijo"}
-        ``"nifty"`` (default): NIFTy.re's line search. Steps 1, 1/2, 1/4, ... along the Newton
-        direction; the first that does not increase the objective is taken; after six failures
-        it restarts along the gradient (scaled by ``g.g / g.H.g``); after nine it gives up and
-        the centre stays put. ``absdelta`` only applies when fewer than two halvings were
-        needed, as in NIFTy.re.
-        ``"armijo"``: backtracking until the Armijo condition (constant 1e-4) holds, down to a
-        step of 1e-12; a CG direction that is not a descent direction (or not finite) is first
-        replaced by steepest descent capped at length ``sqrt(d)``; a step is kept only if the
-        objective decreased. This is the line search of the original MGSL implementation.
+        ``"nifty"`` (default, NIFTy.re's line search): tries steps 1, 1/2, 1/4, ... along the
+        Newton direction and takes the first that does not increase the objective; after six
+        failures it restarts along the gradient (scaled by ``g.g / g.H.g``); after nine it gives
+        up and the centre stays put. ``absdelta`` only applies when fewer than two halvings were
+        needed.
+        ``"armijo"``: halves the step until the objective decreases by at least ``1e-4`` times
+        the decrease predicted by the gradient (the Armijo condition), down to a step of 1e-12;
+        a Newton direction that is not a descent direction (or not finite) is first replaced by
+        steepest descent capped at length ``sqrt(d)``; a step is kept only if the objective
+        strictly decreased. Stricter than ``"nifty"`` about what counts as progress, and never
+        gives up after a fixed number of tries.
     """
 
     maxiter: int
@@ -222,10 +226,13 @@ class MGVIOptions:
     draw_cg : CGOptions
         Stopping rules of the CG solves that draw residuals.
     preconditioner : callable, optional
-        ``preconditioner(x, tau)`` returning a function ``v -> M^{-1} v`` that approximates the
-        inverse of the metric ``(1 + tau) I + I(x)`` (flat vectors). Used in every CG solve of a
-        fit, built at the fit's centre. It may be a pytree (e.g. ``jax.tree_util.Partial``)
-        whose array leaves are passed at run time rather than compiled in.
+        ``preconditioner(x, tau)`` returning a function ``v -> M^{-1} v``, where ``M``
+        approximates the matrix every CG solve of a fit inverts: ``(1 + tau) Id + I(x)``
+        (identity plus Fisher information at the fit's centre ``x``). ``x`` and ``v`` are 1-D
+        arrays of length ``d``: the latent flattened as by ``jax.flatten_util.ravel_pytree``.
+        Called once per fit, at its centre. It may be a pytree (e.g.
+        ``jax.tree_util.Partial``) whose array leaves are passed at run time rather than
+        compiled in.
     """
 
     n_samples_mgvi: int

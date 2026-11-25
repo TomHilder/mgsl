@@ -2,9 +2,16 @@
 
 Usage::
 
+    import operator
+
+    import nifty.re as jft
+    from jax.tree_util import Partial
+
     import mgsl.nifty
 
-    lik = mgsl.nifty.from_likelihood(jft.Gaussian(data, noise_std_inv=1 / sd).amend(model))
+    noise_std_inv = Partial(operator.mul, 1 / sd)     # NIFTy.re wants an operator here
+    lh = jft.Gaussian(data, noise_std_inv=noise_std_inv).amend(model)  # model: a jft.Model
+    lik = mgsl.nifty.from_likelihood(lh)
     result = mgsl.sample(key, lik, mu, schedule, options)
     samples = mgsl.nifty.to_samples(result)   # a nifty.re Samples
 """

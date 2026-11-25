@@ -9,8 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 ### Added
 
 - `sample`, and the three steps it chains: `init`, `advance`, `finalize`. Paths start at
-  `tau_start` from a given centre, advance with the predictive transition, and end with a
-  terminal local fit.
+  `tau_start` from a given centre, advance by drawing the unknown from each step's local
+  Gaussian fit, and end with a terminal local fit.
 - `mgvi_fit`: MGVI fit of the posterior, e.g. for the starting centre.
 - `Likelihood` (a pytree: arrays are run-time inputs), `gaussian` (with `mask=`) and
   `check_likelihood`.

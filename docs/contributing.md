@@ -22,7 +22,7 @@ uv run ruff format .
 ## Tests
 
 ``` bash
-uv run pytest
+uv run pytest            # add -m slow to include slow tests
 ```
 
 ## Documentation
