@@ -25,7 +25,7 @@ __all__ = ["from_likelihood", "to_samples"]
 
 def _jft():
     try:
-        import nifty.re as jft
+        import nifty.re as jft  # pyright: ignore[reportMissingImports]
     except ImportError as e:
         raise ImportError(
             "mgsl.nifty needs NIFTy.re: install the 'nifty' package (provides nifty.re)"

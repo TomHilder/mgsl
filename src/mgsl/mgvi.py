@@ -31,7 +31,6 @@ class Static(NamedTuple):
     line_search: str
     has_absdelta: bool
     diagnostics: bool
-    has_precond: bool
 
 
 class Runtime(NamedTuple):
@@ -62,7 +61,6 @@ def split_options(options: MGVIOptions, d: int, dtype, diagnostics: bool):
         line_search=options.newton.line_search,
         has_absdelta=options.newton.absdelta is not None,
         diagnostics=diagnostics,
-        has_precond=options.preconditioner is not None,
     )
     runtime = Runtime(
         draw_tol=f(options.draw_cg.tol),
@@ -112,7 +110,7 @@ def draw_residuals(prob: Problem, key, xbar, tau, n, st: Static, rt: Runtime):
     def matvec(v):
         return shift * v + fmv(v)
 
-    precond = prob.precond(xbar, tau) if st.has_precond else None
+    precond = prob.precond(xbar, tau) if prob.precond is not None else None
 
     def one(k):
         k1, k2 = jax.random.split(k)
@@ -201,7 +199,7 @@ def newton(prob: Problem, xbar, deltas, tau, y, st: Static, rt: Runtime):
             resnorm, ord_ = jnp.minimum(0.5, jnp.sqrt(g1)) * g1, 1
         else:
             resnorm, ord_ = jnp.maximum(rt.ncg_tol * norm(g, 2), rt.ncg_atol), 2
-        precond = prob.precond(x, tau) if st.has_precond else None
+        precond = prob.precond(x, tau) if prob.precond is not None else None
         p, info = cg(mv, -g, y / shift - x, resnorm, rt.ncg_miniter, rt.ncg_maxiter, ord_, precond)
         res = relative_residual(mv, -g, p) if st.diagnostics else jnp.asarray(0.0, x.dtype)
         solves = solves.add(info, res)

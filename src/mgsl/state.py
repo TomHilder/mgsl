@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from . import _tree
@@ -63,7 +64,7 @@ class SLState:
 
     @property
     def key(self) -> jax.Array:
-        return jax.random.wrap_key_data(self.key_data, impl=self.key_impl)
+        return jax.random.wrap_key_data(jnp.asarray(self.key_data), impl=self.key_impl)
 
     def __repr__(self):
         return f"SLState(n_paths={self.n_paths}, d={self.d}, tau={self.tau:.6g}, step={self.step})"

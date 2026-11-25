@@ -255,9 +255,10 @@ def flatten_likelihood(lik: Likelihood, unravel: Callable, ravel: Callable) -> F
             return (lambda v: fisher(x, v)), (lambda e: fisher_sqrt(x, e))
 
     else:
+        fisher_operator = lik.fisher_operator
 
         def operator(x):
-            fmv, fsqrt = lik.fisher_operator(unravel(x))
+            fmv, fsqrt = fisher_operator(unravel(x))
             return (lambda v: ravel(fmv(unravel(v)))), (lambda e: ravel(fsqrt(e)))
 
     leaves, treedef = jax.tree_util.tree_flatten(lik.data_shape)
