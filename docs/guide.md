@@ -1,5 +1,33 @@
 # User guide
 
+!!! warning "Under heavy development"
+    MGSL is an in-progress research project, and this code changes with it. Expect bugs,
+    quirks, breaking changes and mistakes. Many properties of the method are still unknown:
+    there is no established way to choose the tuning parameters (the number of observation-time
+    steps, and the number of MGVI samples and iterations per step), and essentially nothing is
+    known yet about its error properties.
+
+## Why MGSL
+
+- **No variational family.** MGVI approximates the posterior by a Gaussian, and geoVI by a
+  Gaussian after a local transformation. MGSL assumes no family: it builds a global
+  approximation out of many local Gaussian fits, one per step along each localisation path. It
+  is designed for posteriors that are non-Gaussian beyond what a local transformation can
+  capture, such as the funnels formed by Gaussian-process hyperparameters when the data are
+  informative.
+- **Scales like MGVI.** Every fit is implicit and matrix-free: it never builds a dense
+  covariance matrix, only Jacobian-vector products and conjugate-gradient solves with the Fisher
+  metric, so it keeps all correlations between parameters (full rank) at a cost linear in the
+  number of parameters.
+- **Embarrassingly parallel.** Each sample comes from its own path, independent of all others.
+- **Large steps.** Each step draws the unknown from the local Gaussian fit, accounting for its
+  uncertainty over the step, so the update is exact for the Gaussian part and steps need not
+  be small.
+
+Known limitations: the samples are approximate, and on multimodal posteriors MGSL fails
+silently: paths find the modes but do not weight them correctly.
+
+
 Notation (as in the MGSL paper): \(\mathbf{x}\) is the latent (dimension \(n\)), \(\mathbf{I}\) the
 identity, \(\mathbf{J}\) the Jacobian of the forward model, \(\mathbf{F}\) the Fisher metric of the
 noise model in data space, and \(\tau\) the observation time of the localisation process
