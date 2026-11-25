@@ -236,7 +236,7 @@ class _Progress:
     def line(self, label, tau, stats, failures_total):
         now = time.perf_counter()
         dt, self.t = now - self.t, now
-        msg = f"mgsl  {label}  tau={tau:.3g}  {dt:.2f} s"
+        msg = f"mgsl  {label}  tau=10^{np.log10(tau):.2f}  {dt:.2f} s"
         ess = np.asarray(stats.ess)
         if np.any(np.isfinite(ess)):
             msg += f"  ESS fraction median {np.nanmedian(ess):.2f}, min {np.nanmin(ess):.2f}"

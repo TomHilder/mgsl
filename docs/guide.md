@@ -98,7 +98,7 @@ precision \(\Lambda = (1 + \tau)\,\mathrm{Id} + I(\bar x)\) at localisation time
   every step (`progress=False` turns it off; the lines also go to the `"mgsl"` logger):
 
   ```
-  mgsl  step 12/63  tau=120  3.41 s  ESS fraction median 0.97, min 0.81  failures 0
+  mgsl  step 12/63  tau=10^2.08  3.41 s  ESS fraction median 0.97, min 0.81  failures 0
   ```
 - `finalize` fits each path at its current \(\tau\) and returns \(\bar x + \delta\). It does not
   change the state. Paths whose log-likelihood became NaN or infinite (counted in
