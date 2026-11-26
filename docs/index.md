@@ -28,6 +28,14 @@ products. `mgsl` can work with any `jax` model, and also works out-of-the-box wi
 ## Installation
 
 ```bash
+pip install mgsl
+# or
+uv add mgsl
+```
+
+or the latest version from GitHub:
+
+```bash
 pip install "git+https://github.com/TomHilder/mgsl.git"
 # or
 uv add "mgsl @ git+https://github.com/TomHilder/mgsl.git"
