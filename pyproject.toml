@@ -3,16 +3,44 @@ name = "mgsl"
 dynamic = ["version"]
 description = "Metric Gaussian Stochastic Localisation in JAX"
 readme = "README.md"
-license = "MIT"
-authors = [{ name = "Tom Hilder", email = "Thomas.Hilder@monash.edu" }]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Tom Hilder", email = "thilder@flatironinstitute.org" }]
 requires-python = ">=3.11"
 dependencies = ["jax>=0.7", "numpy>=1.26"]
+keywords = [
+    "bayesian inference",
+    "posterior sampling",
+    "stochastic localisation",
+    "variational inference",
+    "MGVI",
+    "JAX",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Documentation = "https://tomhilder.github.io/mgsl/"
+Repository = "https://github.com/TomHilder/mgsl"
+Issues = "https://github.com/TomHilder/mgsl/issues"
+Changelog = "https://tomhilder.github.io/mgsl/changelog/"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
+include = ["src/mgsl/py.typed"]
 exclude = ["**/__pycache__/**"]
 
 [tool.hatch.build.targets.sdist]
@@ -51,8 +79,6 @@ extraPaths = ["tests"]
 [tool.uv]
 default-groups = ["dev", "examples"]
 
-[tool.uv.sources]
-nifty = { path = "../nifty", editable = true }
 
 [dependency-groups]
 dev = [
@@ -60,7 +86,7 @@ dev = [
     "ruff>=0.17.2",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.26",
-    "nifty",
+    "nifty>=9.2",
     "scipy>=1.17.1",
 ]
 examples = [

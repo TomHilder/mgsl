@@ -1383,7 +1383,7 @@ requires-dist = [
 dev = [
     { name = "mkdocs-material", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26" },
-    { name = "nifty", editable = "../nifty" },
+    { name = "nifty", specifier = ">=9.2" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.17.2" },
     { name = "scipy", specifier = ">=1.17.1" },
@@ -1640,50 +1640,17 @@ wheels = [
 [[package]]
 name = "nifty"
 version = "9.2.0"
-source = { editable = "../nifty" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "blackjax", marker = "extra == 're-extra'" },
-    { name = "cufinufft", marker = "extra == 'cl-cufinufft'" },
-    { name = "cupy", marker = "extra == 'cl-gpu'" },
-    { name = "ducc0", marker = "extra == 'cl-native'", specifier = ">=0.27.0" },
-    { name = "ducc0", marker = "extra == 're'", specifier = ">=0.27.0" },
-    { name = "ducc0", marker = "extra == 'test'" },
-    { name = "h5py", marker = "extra == 'cl-util'" },
-    { name = "ipython", marker = "extra == 're-extra'" },
-    { name = "jax", marker = "extra == 're'", specifier = ">=0.5,!=0.6.0" },
-    { name = "jaxbind", marker = "extra == 're'" },
-    { name = "jaxlib", marker = "extra == 're'", specifier = ">=0.5,!=0.6.0" },
-    { name = "jupyter", marker = "extra == 'doc'" },
-    { name = "jupyter-book", marker = "extra == 'doc'", specifier = "<2.0" },
-    { name = "jupytext", marker = "extra == 'doc'" },
-    { name = "matplotlib", marker = "extra == 'cl-util'" },
-    { name = "mpi4py", marker = "extra == 'cl-parallel'" },
-    { name = "myst-parser", marker = "extra == 'doc'" },
-    { name = "nbconvert", marker = "extra == 'doc'" },
-    { name = "nifty", extras = ["cl-util"], marker = "extra == 'test'" },
-    { name = "nifty", extras = ["re"], marker = "extra == 'test'" },
-    { name = "nifty", extras = ["re", "re-extra", "cl-native", "cl-parallel", "cl-util", "cl-finufft", "test", "doc"], marker = "extra == 'all'" },
-    { name = "nifty", extras = ["re-extra"], marker = "extra == 'test'" },
-    { name = "numpy", specifier = ">=1.17.0" },
-    { name = "optax", marker = "extra == 're-extra'" },
-    { name = "pydata-sphinx-theme", marker = "extra == 'doc'" },
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-cov", marker = "extra == 'test'" },
-    { name = "pytest-xdist", marker = "extra == 'test'" },
-    { name = "pyvkfft", marker = "extra == 'cl-gpu'" },
-    { name = "scipy", specifier = ">=1.9.0" },
-    { name = "sphinx", marker = "extra == 'doc'", specifier = "<8.2" },
-    { name = "sphinxcontrib-bibtex", marker = "extra == 'doc'" },
+sdist = { url = "https://files.pythonhosted.org/packages/2a/2e/dd7012f798217deaa515f8d31e92f569f421f89eda5a197758b0f543c59a/nifty-9.2.0.tar.gz", hash = "sha256:05a2a693257fd0b0d6b13c59a90597141a6b58ae26ddb360b96338fccd2c3a26", size = 392394, upload-time = "2026-04-17T13:44:54.538Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/97/aa9c613d3d2bfed2b688a746e9a4b8f65211bd7a6bc37b47b82a7da9f3bf/nifty-9.2.0-py3-none-any.whl", hash = "sha256:c9184918df1aa7b1894d77cca74f0a98b8594ebdc8773477168ea3d9143c105c", size = 438148, upload-time = "2026-04-17T13:44:52.522Z" },
 ]
-provides-extras = ["re", "re-extra", "cl-native", "cl-gpu", "cl-cufinufft", "cl-parallel", "cl-util", "doc", "test", "all"]
 
 [[package]]
 name = "numpy"

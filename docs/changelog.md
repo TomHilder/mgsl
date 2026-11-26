@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Licence: GNU General Public License v3.0 or later (was MIT).
+- Releases no longer run the tests (they run on pull requests and on `main`); the docs are
+  deployed with each release.
+- NIFTy.re, a development-only dependency, now comes from PyPI.
+
+### Added
+
+- README: installation over HTTPS, documentation link, related work, licence, and how to
+  report problems.
+- Package metadata: project URLs, classifiers, keywords; `py.typed` marker.
+
 ## [0.0.2] - 2026-11-26
 
 ### Changed

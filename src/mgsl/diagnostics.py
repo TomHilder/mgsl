@@ -250,9 +250,10 @@ class MGSLDiagnostics:
     tau_end : float
         Observation time reached after the last step.
     ess_fraction : numpy.ndarray
-        ``(n_paths, n_steps)``, see :class:`FitDiagnostics`. The local ESS fraction over tau,
-        per path, is the main convergence diagnostic: it rises towards 1 once the local
-        Gaussian approximation becomes accurate.
+        ``(n_paths, n_steps)``, see :class:`FitDiagnostics`. Over tau, per path, it sits near
+        its floor early on and rises to 1 once the local Gaussian approximation becomes
+        accurate; the convergence check is the tau at which the paths all reach 1 together,
+        which the final tau should be beyond.
     newton_iter : numpy.ndarray
         ``(n_paths, n_steps)``.
     cg_newton, cg_draws : CGStats

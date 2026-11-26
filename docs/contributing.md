@@ -3,7 +3,7 @@
 ## Development setup
 
 ``` bash
-git clone git@github.com:TomHilder/mgsl.git
+git clone https://github.com/TomHilder/mgsl.git
 cd mgsl
 uv sync
 ```
@@ -45,6 +45,7 @@ The version comes from git tags (hatch-vcs): untagged commits get development ve
    git push origin vX.Y.Z
    ```
 
-The `release` workflow then runs the tests, builds the sdist and wheel, checks that the version
-matches the tag, and creates a GitHub Release with the changelog section as its notes and the
-built files attached. It does not upload to PyPI or deploy the docs yet.
+The `release` workflow then builds the sdist and wheel, checks that the version matches the tag,
+and creates a GitHub Release with the changelog section as its notes and the built files
+attached; the `docs` workflow deploys the documentation. The tests run on every pull request and
+on `main` (the `tests` workflow), not in the release. Nothing is uploaded to PyPI yet.
