@@ -9,5 +9,5 @@ To run them:
 
 ```sh
 uv sync --group examples
-uv run --group examples jupyter lab examples/   # or open them in your editor
+uv run --group examples --with jupyterlab jupyter lab examples/   # or open them in your editor
 ```
