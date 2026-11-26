@@ -11,3 +11,5 @@ installed by default), then open a notebook with the repository's `.venv` as its
 ```sh
 uv run --with jupyterlab jupyter lab examples/
 ```
+
+You can also just them somewhere that `mgsl` is installed, as well as the other packages imported.

@@ -1,11 +1,11 @@
 # User guide
 
 !!! warning "Under heavy development"
-    MGSL is an in-progress research project, and this code changes with it. Expect bugs,
+    MGSL is an in-progress research project, and this code will certainly evolve. Expect bugs,
     quirks, breaking changes and mistakes. Many properties of the method are still unknown:
-    there is no established way to choose the tuning parameters (the number of observation-time
-    steps, and the number of MGVI samples and iterations per step), and essentially nothing is
-    known yet about its error properties.
+    there is (currently) no principled way to choose the tuning parameters (the number of
+    observation-time steps, and the number of MGVI samples and iterations per step).
+    Essentially nothing is known yet about the error properties of the posterior approximation.
 
     Please report bugs and problems through
     [GitHub Issues](https://github.com/TomHilder/mgsl/issues), and get in touch before
@@ -13,45 +13,39 @@
 
 ## Why MGSL
 
-- **No global variational family.** MGVI approximates the posterior by a Gaussian, and geoVI
-  by a Gaussian after a local transformation. MGSL assumes no global family: it builds a global
+- **No global variational family.** MGSL assumes no global family: it builds a global
   approximation out of many local Gaussian fits, one per step along each localisation path. It
-  is designed for posteriors that are non-Gaussian beyond what a local transformation can
-  capture.
-- **Scales like MGVI.** Every fit is implicit and matrix-free: it never builds a dense
-  covariance matrix, only Jacobian-vector products and conjugate-gradient solves with the Fisher
-  metric, so it keeps all correlations between parameters (full rank) at a cost linear in the
-  number of parameters.
-- **Embarrassingly parallel.** Each sample comes from its own path, independent of all others.
-- **Large steps.** Each step draws the unknown from the local Gaussian fit, accounting for its
-  uncertainty over the step, so the update is exact for the Gaussian part and steps need not
-  be small.
+  is designed for posteriors that are non-Gaussian.
+- **Scales linearly in dimension.** Every fit is implicit and matrix-free: we never builds a dense
+  covariance matrix, and use only Jacobian-vector products and conjugate-gradient solves via the Fisher
+  metric. Like typical MGVI, we keep all correlations between parameters (full rank) at a cost only 
+  linear in the number of model parameters.
+- **Embarrassingly parallel.** Each sample comes from its own path, independent of all others. If you
+  have N GPUs (or CPU cores), you can run N samples simultaneously. If your model is cheap this can
+  be worth it on CPU, but generally for larger models it's better to do one sample at a time on CPU.
 
-Known limitations: the samples are approximate, and on multimodal posteriors MGSL fails
-silently: paths find the modes but do not weight them correctly.
-
+The most noteworthy (known) limitations are that MGSL is still approximate, and that it does cannot
+handle multimodal distributions.
 
 Notation: \(\mathbf{x}\) is the latent (dimension \(n\)), \(\mathbf{I}\) the
 identity, \(\mathbf{J}\) the Jacobian of the forward model, \(\mathbf{F}\) the Fisher metric of the
 noise model in data space, and \(\tau\) the observation time of the localisation process
-\(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\). The *localising distribution*
-\(\pi_\tau(\mathbf{x} \mid \mathbf{y})\) is the posterior of \(\mathbf{x}\) given the observation \(\mathbf{y}\) at time \(\tau\).
+\(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\). The _localising distribution_
+\(\pi_\tau(\mathbf{x} \mid \mathbf{y})\) is the posterior distribution of \(\mathbf{x}\)
+given the observation \(\mathbf{y}\) at time \(\tau\) (NOT the posterior of the original
+inference problem).
 
 ## Describing the problem
 
-### Whitened latent
+### Whitened parameter space
 
-mgsl assumes the prior on the latent is \(\mathcal N(\mathbf{0}, \mathbf{I})\). A model with other priors
-is written in terms of standard-normal variables through a transformation
-\(\boldsymbol\theta = \mathbf{f}(\mathbf{x})\) to the physical parameters: a parameter
-\(\boldsymbol\theta \sim \mathcal N(\mathbf{m}, \mathbf{L}\mathbf{L}^\top)\) becomes
-\(\boldsymbol\theta = \mathbf{m} + \mathbf{L}\mathbf{x}\), a log-normal amplitude becomes \(\exp(m + s\,x)\), a
-Gaussian process becomes its whitened Fourier or Karhunen-Loève coefficients, and so on. The
-forward model starts from \(\mathbf{x}\):
+`mgsl` assumes the prior on the latent is \(\mathcal N(\mathbf{0}, \mathbf{I})\). A model
+with other priors is written in terms of standard-normal variables through a transformation
+\(\boldsymbol{\theta} = \mathbf{f}(\mathbf{x})\). The forward model starts from \(\mathbf{x}\):
 
 ```python
 def forward(x):
-    theta = m + L @ x  # prior N(m, L L^T) on theta
+    theta = m + L @ x  # provides prior N(m, L L^T) on theta
     return model(theta)  # prediction of the data
 ```
 
@@ -60,9 +54,9 @@ def forward(x):
 A [`Likelihood`](api/likelihood.md) has
 
 - `log_likelihood(x)`: \(\log p(\mathbf{d} \mid \mathbf{x})\), up to a constant;
-- `fisher(x, v)`: \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\,\mathbf{v}\), the Fisher metric pulled back to the latent and applied
-  to a tangent \(\mathbf{v}\) (e.g. \(\mathbf{F} = \mathrm{diag}(1/\sigma^2)\) for Gaussian
-  noise); no prior term;
+- `fisher(x, v)`: \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\,\mathbf{v}\), the Fisher metric projected to
+  the latent space and applied to a parameter vector \(\mathbf{v}\) (e.g. \(\mathbf{F} = \mathrm{diag}(1/\sigma^2)\) 
+  for Gaussian noise); no prior term;
 - `fisher_sqrt(x, z)`: \(\mathbf{J}^\dagger \mathbf{F}^{1/2} \mathbf{z}\), which has covariance
   \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) for \(\mathbf{z} \sim \mathcal N(\mathbf{0}, \mathbf{I})\);
 - `data_shape`: a pytree of `jax.ShapeDtypeStruct` with the structure, shapes and dtypes of
@@ -70,20 +64,16 @@ A [`Likelihood`](api/likelihood.md) has
 
 For Gaussian noise, `mgsl.gaussian(forward, data, noise_std=..., mask=...)` builds all four.
 `noise_std` is a scalar or an array of the data's shape. Masked data points (`mask` False) get
-zero weight and may hold NaN. For other noise models, write the four entries by hand, e.g.
-with `jax.jvp` and `jax.vjp` of the forward model.
+zero weight and may hold NaN. For other noise models, the user must provide these properties
+in a custom likelihood. Alternatively, since `nifty.re` models are supported, that my be a simpler
+route.
 
-When you write the functions by hand, check them with `mgsl.check_likelihood(lik, x, key)`.
-Along a few random directions (drawn with `key`) at the latent value `x`, it compares `fisher`
-with `fisher_sqrt` (which must agree exactly) and with the Hessian of `log_likelihood` (which
-should be close and must have the same sign). It raises `ValueError` naming the problem: a
-negative log-likelihood passed as `log_likelihood`, a data-space Fisher matrix instead of
-\(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\), a \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) that
-is not positive semi-definite, or wrong output shapes; it warns when the Hessian and
+If you do write a custom likelihood, you can check it is self consistent with `mgsl.check_likelihood(lik, x, key)`.
+It will error for: a negative log-likelihood is passed as `log_likelihood`, a data-space Fisher matrix is
+given instead of \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\), a \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) that
+is not positive semi-definite, or wrong output shapes. It also warns when the Hessian and
 \(\mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) differ by more than a factor 1.5, a sign of a missing
-weight or factor. It returns the quadratic forms it compared. Run it at zeros and near the
-posterior (e.g. at a fit's centre). Likelihoods from `mgsl.gaussian` and the NIFTy.re adaptor
-are consistent by construction.
+weight or factor (the Hessian is not explicitly formed so this shouldn't be expensive).
 
 Arrays (and Python floats) held by a `Likelihood` through `jax.tree_util.Partial`, as
 `gaussian` does, are passed to compiled code at run time, so new data of the same shape does
@@ -107,10 +97,6 @@ lik = mgsl.nifty.from_likelihood(lh)
 result = mgsl.sample(key, lik, mu, schedule, options)
 samples = mgsl.nifty.to_samples(result)  # nifty.re Samples, pos = the sample mean
 ```
-
-The NIFTy.re likelihood must be amended with the model, so that its primals are the latent with
-a standard-normal prior. `optimize_kl`'s `point_estimates` and `constants` have no equivalent:
-fix such parameters inside the model. Dict and `jft.Vector` latents keep their type.
 
 ## Running
 
@@ -153,12 +139,9 @@ True)`) is recommended; float32 works with looser attainable CG tolerances.
 
 ### Resuming and checkpointing
 
-The state holds everything needed to continue: the paths' observations and centres, the
-observation time and step count, the run's key and the latent's structure. Random numbers are
-derived from the key, the path and the global step, so a run split into several `advance`
-calls gives the samples of one uninterrupted run over the same grid points with the same
-options: bit for bit with the same `batch_size`, `devices` and `vectorize`, and to rounding
-otherwise.
+The state holds everything needed to continue/resume paths. This includes he paths'
+observations and centres, the observation time and step count, and the run's key and the
+latent's structure.
 
 ```python
 mgsl.save_state("run.npz", result.state)
@@ -180,6 +163,9 @@ for k in range(0, 63, 8):
 
 `MGSLDiagnostics.concatenate(a, b)` joins the chunks' diagnostics.
 
+This is pretty clunky right now and one of the main areas of improvement for the code base
+is probably a better and automatic checkpointing system.
+
 ### Paths, batches and devices
 
 - `vectorize`: within a compiled call, paths run one after another by default, each with as
@@ -191,8 +177,6 @@ for k in range(0, 63, 8):
   the last is padded, so there is one compilation).
 - `devices`: shard each batch over exactly these devices. The batch size (default `n_paths`,
   padded) must be a multiple of `len(devices)`. Nothing is sharded unless asked.
-
-Samples do not depend on these settings (beyond rounding).
 
 ## Settings
 
@@ -267,20 +251,11 @@ step:
   `maxiter`);
 - `terminal`: the same for the final fit that produced the samples.
 
+To create the typical plot to gauge convergence (_not_ correctness), do something like the following:
+
 ```python
 import matplotlib.pyplot as plt
 
 d = result.diagnostics
 plt.semilogx(d.taus, d.ess_fraction.T, color="k", alpha=0.2)
 ```
-
-Turning diagnostics off saves `2 * n_samples_mgvi + 1` log-likelihood evaluations per fit.
-
-Every CG solve judges convergence on its true residual \(\mathbf{b} - \mathbf{A}\mathbf{x}\),
-recomputed every `refresh` iterations (`CGOptions(refresh=20)`, as in NIFTy.re) and whenever the
-solve looks converged. CG's cheap running estimate of the residual drifts in floating point, and
-in badly conditioned solves it can claim convergence for an iterate that is far off; the
-recomputation prevents that. CG also stops, keeping its previous iterate, when its objective
-\(\tfrac12 \mathbf{x}^\top \mathbf{A}\mathbf{x} - \mathbf{b}^\top \mathbf{x}\) stops
-decreasing, which means it has reached rounding noise. Lowering `refresh` limits drift further but slows convergence when
-done every few iterations.
