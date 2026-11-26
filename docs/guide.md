@@ -7,10 +7,14 @@
     steps, and the number of MGVI samples and iterations per step), and essentially nothing is
     known yet about its error properties.
 
+    Please report bugs and problems through
+    [GitHub Issues](https://github.com/TomHilder/mgsl/issues), and get in touch before
+    publishing comparisons with MGSL.
+
 ## Why MGSL
 
-- **No variational family.** MGVI approximates the posterior by a Gaussian, and geoVI by a
-  Gaussian after a local transformation. MGSL assumes no family: it builds a global
+- **No global variational family.** MGVI approximates the posterior by a Gaussian, and geoVI
+  by a Gaussian after a local transformation. MGSL assumes no global family: it builds a global
   approximation out of many local Gaussian fits, one per step along each localisation path. It
   is designed for posteriors that are non-Gaussian beyond what a local transformation can
   capture.
@@ -27,7 +31,7 @@ Known limitations: the samples are approximate, and on multimodal posteriors MGS
 silently: paths find the modes but do not weight them correctly.
 
 
-Notation (as in the MGSL paper): \(\mathbf{x}\) is the latent (dimension \(n\)), \(\mathbf{I}\) the
+Notation: \(\mathbf{x}\) is the latent (dimension \(n\)), \(\mathbf{I}\) the
 identity, \(\mathbf{J}\) the Jacobian of the forward model, \(\mathbf{F}\) the Fisher metric of the
 noise model in data space, and \(\tau\) the observation time of the localisation process
 \(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\). The *localising distribution*
@@ -211,13 +215,12 @@ Samples do not depend on these settings (beyond rounding).
 
 mgsl has no recommended values; check a choice with the diagnostics:
 
-- The terminal fit (`result.diagnostics.terminal.ess_fraction`) should have an ESS fraction
-  close to 1 for every path (with enough residuals to make that meaningful, see
-  [Diagnostics](#diagnostics)), which needs `tau_final` well above the largest eigenvalue of the
-  posterior precision \(\mathbf{I} + \mathbf{J}^\dagger \mathbf{F} \mathbf{J}\) of the latent. If it is not, raise `tau_final`,
-  e.g. by continuing the state with `advance`.
-- Where `ess_fraction` is low or jumps between steps, the steps are too coarse there: use more
-  grid points (`n_tau`).
+- The local ESS fraction is expected to sit near its floor at small \(\tau\), where the
+  localising distribution is far from Gaussian. What to look for is the observation time at
+  which the paths' ESS fractions all rise to 1 together: `tau_final` should be beyond it, so
+  that the terminal fit (`result.diagnostics.terminal.ess_fraction`) has an ESS fraction close
+  to 1 for every path. If it does not, raise `tau_final`, e.g. by continuing the state with
+  `advance`.
 - Failure warnings (capped CG solves, line-search failures) mean the solves are not converged:
   raise the corresponding `maxiter`, or check the likelihood.
 - `n_iter_mgvi=1` is often enough inside a run, because each fit starts from the previous
@@ -252,8 +255,9 @@ step:
   mirrored residuals as importance samples of the localising distribution, rescaled to
   \((\mathrm{ESS} - 1)/(m - 1)\): 1 means equal weights (the local Gaussian matches the
   localising distribution at these points), 0 means a single point carries all the weight.
-  Plotted against `taus`, per path, it is the main convergence diagnostic. NaN where a
-  residual's CG solve did not converge. It only sees the directions the \(m\) residuals
+  Plotted against `taus` per path, it sits near its floor early on; the convergence check is
+  the observation time at which the paths all rise to 1 together, which `tau_final` should be
+  beyond. NaN where a residual's CG solve did not converge. It only sees the directions the \(m\) residuals
   probe: with few residuals it can read close to 1 while the local Gaussian is still off, so
   judge convergence with a few more residuals than the run itself needs, or on a subset of
   paths;

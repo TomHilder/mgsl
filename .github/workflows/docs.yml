@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"  # same trigger as release.yml: the published docs match the latest release
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -44,12 +46,10 @@ jobs:
       - name: Build documentation
         run: mkdocs build --strict
 
-      # Deploy to GitHub Pages (tomhilder.github.io/mgsl) on manual runs only, for now: the site
-      # is public even while the repository is private. To deploy with every release, as the
-      # other packages do, add `tags: ["v*"]` under `push` and to this condition:
-      # startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      # Deploy to GitHub Pages (tomhilder.github.io/mgsl) on version tags and manual runs only;
+      # pushes and PRs just check that the docs build.
       - name: Deploy to gh-pages
-        if: github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

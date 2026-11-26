@@ -23,7 +23,9 @@ and with NIFTy.re models through an optional adaptor.
 ## Installation
 
 ```bash
-uv add "mgsl @ git+ssh://git@github.com/TomHilder/mgsl.git"
+pip install "git+https://github.com/TomHilder/mgsl.git"
+# or
+uv add "mgsl @ git+https://github.com/TomHilder/mgsl.git"
 ```
 
 Runtime dependency: JAX. NIFTy.re is only needed for `mgsl.nifty`.
