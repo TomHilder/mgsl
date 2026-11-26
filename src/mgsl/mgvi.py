@@ -302,7 +302,12 @@ def _nifty_search(kl, mv, x, val, g, p, sd, tiny):
     accept = jnp.isfinite(f) & (f <= val)
     x_new = jnp.where(accept, x + a * q, x)
     f_new = jnp.where(accept, f, val)
-    pred = g @ sd  # predicted decrease of a capped gradient step: is there anything to gain?
+    # is there a decrease to find? The Newton direction predicts one of about -g.p (the gradient
+    # alone overstates it by the curvature, hugely so at large tau); below rounding of the
+    # objective, finding no decrease is convergence, not failure
+    slope = g @ p
+    newton_ok = jnp.isfinite(slope) & (slope < 0)
+    pred = jnp.where(newton_ok, slope, g @ sd)
     significant = jnp.isfinite(pred) & (-pred > tiny)
     # NIFTy.re applies absdelta only when the line search needed fewer than two halvings
     return x_new, f_new, accept, reset, significant, it < 2
