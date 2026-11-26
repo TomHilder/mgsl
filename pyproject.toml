@@ -60,3 +60,9 @@ dev = [
     "nifty",
     "scipy>=1.17.1",
 ]
+examples = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "nbconvert>=7.17.2",
+    "nbformat>=5.11.1",
+]
