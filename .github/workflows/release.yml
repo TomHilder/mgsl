@@ -1,8 +1,9 @@
 name: release
 
 # Push a tag vX.Y.Z on main to make a GitHub Release (build, release notes from
-# docs/changelog.md, sdist and wheel attached). The tests run on pull requests and on main
-# (tests.yml), not here. No PyPI upload yet.
+# docs/changelog.md, sdist and wheel attached) and upload to PyPI (trusted publishing, no
+# tokens: the PyPI project trusts this workflow in the `pypi` environment). The tests run on
+# pull requests and on main (tests.yml), not here.
 
 on:
   push:
@@ -12,8 +13,10 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: pypi  # must match the environment registered for the PyPI trusted publisher
     permissions:
       contents: write  # create the release
+      id-token: write  # PyPI trusted publishing
     steps:
       - uses: actions/checkout@v5
         with:
@@ -48,3 +51,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --title "mgsl $GITHUB_REF_NAME" --notes-file notes.md
+
+      # Last, so a failed upload leaves the GitHub Release in place; a version can be uploaded
+      # to PyPI only once.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -39,6 +39,14 @@ products. `mgsl` can work with any `jax` model, and also works out-of-the-box wi
 ## Installation
 
 ```bash
+pip install mgsl
+# or
+uv add mgsl
+```
+
+or the latest version from GitHub:
+
+```bash
 pip install "git+https://github.com/TomHilder/mgsl.git"
 # or
 uv add "mgsl @ git+https://github.com/TomHilder/mgsl.git"
@@ -95,7 +103,7 @@ fits: they depend on the problem. This is an active research project and we curr
 have a confident enough understanding of the algorithm to make many recommendations here.
 The [user guide](https://tomhilder.github.io/mgsl/guide/#choosing-the-settings) goes into some
 detail in terms of diagnostics however, and also covers `nifty.re` models, resuming runs, batches
-and devices, and power-user options. Example notebooks are in [`examples/`](examples/).
+and devices, and power-user options. Example notebooks are in [`examples/`](https://github.com/TomHilder/mgsl/tree/main/examples).
 
 ## Citation
 
@@ -118,7 +126,7 @@ MGSL builds on previous work in:
 
 ## Licence
 
-GNU General Public License v3.0 or later; see [LICENSE](LICENSE).
+GNU General Public License v3.0 or later; see [LICENSE](https://github.com/TomHilder/mgsl/blob/main/LICENSE).
 
 ## Development
 
