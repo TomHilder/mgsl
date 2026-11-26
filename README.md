@@ -108,9 +108,8 @@ MGSL builds on previous work in:
   A. Montanari and M. Sellke (2022), *Sampling from the Sherrington-Kirkpatrick Gibbs measure
   via algorithmic stochastic localization*, FOCS; A. Montanari (2023), *Sampling, diffusions,
   and stochastic localization*.
-- **Posterior sampling with stochastic localisation (SLIPS):** L. Grenioux, M. Noble,
-  M. Gabrié and A. O. Durmus (2024), *Stochastic localization via iterative posterior
-  sampling*, ICML.
+- **Stochastic localization via iterative posterior sampling (SLIPS):** L. Grenioux,
+  M. Noble, M. Gabrié and A. O. Durmus (2024), ICML.
 - **Implicit Gaussian variational inference:** J. Knollmüller and T. A. Enßlin (2019),
   *Metric Gaussian variational inference* (MGVI); P. Frank, R. Leike and T. A. Enßlin (2021),
   *Geometric variational inference*, Entropy (geoVI); G. Edenhofer et al. (2024),
