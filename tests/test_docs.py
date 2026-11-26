@@ -32,3 +32,24 @@ def test_readme_quick_start_matches_docs():
     readme = python_blocks(DOCS.parent / "README.md")[0]
     docs = python_blocks(DOCS / "index.md")[0]
     assert readme == docs, "README quick start differs from docs/index.md: keep them in sync"
+
+
+def words(text):
+    """Prose without markdown quote/indent markers or line breaks."""
+    text = re.sub(r"^\s*>\s?", "", text, flags=re.MULTILINE)
+    return " ".join(text.split())
+
+
+def section(text, start, end):
+    return text[text.index(start) : text.index(end, text.index(start))]
+
+
+def test_readme_status_and_why_match_guide():
+    readme = (DOCS.parent / "README.md").read_text()
+    guide = (DOCS / "guide.md").read_text()
+    readme_status = section(readme, "MGSL is an in-progress", "comparisons with MGSL.")
+    guide_status = section(guide, "MGSL is an in-progress", "comparisons with MGSL.")
+    assert words(readme_status) == words(guide_status), "README status differs from guide"
+    readme_why = section(readme, "## Why MGSL", "## Installation")
+    guide_why = section(guide, "## Why MGSL", "Notation:")
+    assert words(readme_why) == words(guide_why), "README 'Why MGSL' differs from guide"
