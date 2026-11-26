@@ -196,15 +196,16 @@ Samples do not depend on these settings (beyond rounding).
   of `n_tau` points from `tau_start` to `tau_final`).
 - [`MGVIOptions`](api/options.md): `n_samples_mgvi` (residuals per fit, each also used
   mirrored, \(\bar{\mathbf{x}} \pm \boldsymbol{\delta}\)) and `n_iter_mgvi` (rounds per fit), both required; Newton
-  and CG settings. Names, defaults and stopping rules follow NIFTy.re's `optimize_kl`:
-  `CGOptions(tol=1e-5, atol=0, miniter, maxiter)` for the residual draws and
-  `NewtonOptions(maxiter, xtol=1e-5, absdelta, cg, adaptive_cg=True, line_search="nifty")` for
-  the fits.
+  and CG settings. Names, defaults and stopping rules follow NIFTy.re's `optimize_kl`, except
+  the line search: `CGOptions(tol=1e-5, atol=0, miniter, maxiter, refresh=20)` for the residual
+  draws and `NewtonOptions(maxiter, xtol=1e-5, absdelta, cg, adaptive_cg=True,
+  line_search="armijo")` for the fits.
+  - `line_search="armijo"` (default): backtracking until a sufficient decrease (Armijo
+    condition) holds, with a steepest-descent fallback for bad Newton directions; it never
+    gives up after a fixed number of tries.
   - `line_search="nifty"`: NIFTy.re's line search (accepts any step that does not increase
-    the objective; restarts along the gradient after six halvings; gives up after nine).
-  - `line_search="armijo"`: backtracking until a sufficient decrease (Armijo condition) holds,
-    with a steepest-descent fallback for bad Newton directions; stricter about progress and
-    never gives up after a fixed number of tries.
+    the objective; restarts along the gradient after six halvings; gives up after nine). On
+    strongly curved posteriors it gives up more often.
 
 ### Choosing the settings
 

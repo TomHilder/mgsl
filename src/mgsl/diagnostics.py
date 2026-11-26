@@ -170,8 +170,8 @@ _HINTS = {
     "mgsl.check_likelihood",
     "sd_fallbacks": "Newton directions were replaced by gradient steps: the Fisher "
     "information may be a poor curvature model there; check the likelihood",
-    "line_search_failures": "no decrease found along the step; check the likelihood, or try "
-    "line_search='armijo'",
+    "line_search_failures": "no decrease found along the step although one was predicted; "
+    "check the likelihood (with line_search='nifty', try the default 'armijo')",
     "nonfinite": "the log-likelihood is NaN/inf at the fit's centre, so those paths cannot "
     "move (their samples are NaN): check the data and the model's domain",
 }

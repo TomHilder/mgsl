@@ -189,18 +189,17 @@ class NewtonOptions:
     adaptive_cg : bool, default True
         If True, the inner CG stops at a residual 1-norm of ``min(0.5, sqrt(|g|_1)) |g|_1`` for
         gradient ``g`` (an inexact Newton method), ignoring ``cg.tol`` and ``cg.atol``.
-    line_search : {"nifty", "armijo"}
-        ``"nifty"`` (default, NIFTy.re's line search): tries steps 1, 1/2, 1/4, ... along the
-        Newton direction and takes the first that does not increase the objective; after six
-        failures it restarts along the gradient (scaled by ``g.g / g.H.g``); after nine it gives
-        up and the centre stays put. ``absdelta`` only applies when fewer than two halvings were
-        needed.
-        ``"armijo"``: halves the step until the objective decreases by at least ``1e-4`` times
-        the decrease predicted by the gradient (the Armijo condition), down to a step of 1e-12;
-        a Newton direction that is not a descent direction (or not finite) is first replaced by
-        steepest descent capped at length ``sqrt(d)``; a step is kept only if the objective
-        strictly decreased. Stricter than ``"nifty"`` about what counts as progress, and never
-        gives up after a fixed number of tries.
+    line_search : {"armijo", "nifty"}
+        ``"armijo"`` (default): halves the step until the objective decreases by at least
+        ``1e-4`` times the decrease predicted by the gradient (the Armijo condition), down to a
+        step of 1e-12; a Newton direction that is not a descent direction (or not finite) is
+        first replaced by steepest descent capped at length ``sqrt(d)``; a step is kept only if
+        the objective strictly decreased. It never gives up after a fixed number of tries.
+        ``"nifty"`` (NIFTy.re's line search): tries steps 1, 1/2, 1/4, ... along the Newton
+        direction and takes the first that does not increase the objective; after six failures
+        it restarts along the gradient (scaled by ``g.g / g.H.g``); after nine it gives up and
+        the centre stays put. ``absdelta`` only applies when fewer than two halvings were
+        needed. On strongly curved posteriors it gives up more often than ``"armijo"``.
     """
 
     maxiter: int
@@ -208,7 +207,7 @@ class NewtonOptions:
     absdelta: float | None = None
     cg: CGOptions = field(default_factory=CGOptions)
     adaptive_cg: bool = True
-    line_search: str = "nifty"
+    line_search: str = "armijo"
 
     def __post_init__(self):
         if self.line_search not in ("nifty", "armijo"):
