@@ -2,14 +2,14 @@
 
 `mgsl` is an implementation of the Metric Gaussian Stochastic Localisation (MGSL) algorithm,
 written in `jax`. Broadly, MGSL can be understood as a variational inference (VI) method that produces
-independent posterior samples. The appoximation to the posterior includes all correlations, and
+independent posterior samples. The approximation to the posterior includes all correlations, and
 does _not_ assume any particular variational family. As such, MGSL is particularly well suited
 to massive-scale inference problems where the posterior is non-Gaussian, but still unimodal.
 
 The algorithm operates by running localisation "paths". Each of these paths is independent, and produces
 a single posterior sample.
 
-In a a bit more detail, each path follows the observation process
+In a bit more detail, each path follows the observation process
 \(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\) where \(\mathbf{X} \sim p(\mathbf{x} \mid \mathbf{d})\) 
 is a currently unknown posterior sample, \(\mathbf{W}_\tau\) is a standard Brownian motion process. 
 The observation time \(\tau\) grows until \(\mathbf{Y}_\tau / \tau\) converges to \(\mathbf{X}\). 
@@ -82,6 +82,6 @@ result.failures.totals()  # solver failure counts (always recorded)
 There are no defaults for the schedule or for the number of samples and rounds of the local
 fits: they depend on the problem. This is an active research project and we currently do not
 have a confident enough understanding of the algorithm to make many recommendations here.
-The [userguide](guide.md#choosing-the-settings) goes into some detail in terms of diagnostics
+The [user guide](guide.md#choosing-the-settings) goes into some detail in terms of diagnostics
 however, and also covers `nifty.re` models, resuming runs, batches and devices, and power-user
 options.
