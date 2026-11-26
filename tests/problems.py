@@ -104,7 +104,7 @@ class Nonlinear2D:
         return -0.5 * np.sum(r**2) / self.sd**2 - 0.5 * np.sum(np.asarray(x) ** 2)
 
 
-def tight_options(n_samples=2, n_iter=1, newton_maxiter=5, line_search="nifty", **kw):
+def tight_options(n_samples=2, n_iter=1, newton_maxiter=5, line_search="armijo", **kw):
     cg = mgsl.CGOptions(tol=1e-12, miniter=0, maxiter=500)
     return mgsl.MGVIOptions(
         n_samples_mgvi=n_samples,

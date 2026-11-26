@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- The default line search is now `"armijo"` (`NewtonOptions(line_search=...)`); NIFTy.re's
+  line search (`"nifty"`, the previous default) gave up more often on strongly curved
+  posteriors.
+
+### Added
+
+- Example notebooks in `examples/` (a curved 2D posterior; a field seen through binary data,
+  compared with MGVI) and an `examples` dependency group.
+- Docs workflow: builds the docs on pull requests; deploys to GitHub Pages on manual runs.
+- README: citation section.
+
 ## [0.0.1] - 2026-11-26
 
 First release. MGSL is an in-progress research project: expect bugs, quirks and breaking

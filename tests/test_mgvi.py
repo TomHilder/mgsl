@@ -193,7 +193,8 @@ def test_armijo_replaces_ascent_direction_by_steepest_descent():
 def test_nifty_search_restarts_along_gradient():
     p = Nonlinear2D(b=500.0, sd=1e-2)
     lik = p.lik()
-    prob, st, rt = setup(lik, jnp.zeros(2), tight_options(n_samples=1, newton_maxiter=1))
+    opts = tight_options(n_samples=1, newton_maxiter=1, line_search="nifty")
+    prob, st, rt = setup(lik, jnp.zeros(2), opts)
     x0 = jnp.array([0.05, 0.0])
     u = lambda x: 0.5 * x @ x - lik.log_likelihood(x)
     x, counts, _ = newton(prob, x0, jnp.zeros((1, 2)), 0.0, jnp.zeros(2), st, rt)
@@ -289,7 +290,9 @@ def test_nifty_line_search_matches_nifty_newton_cg(b, sd, start, zero_deltas):
         opts = mgsl.MGVIOptions(
             n_samples_mgvi=2,
             n_iter_mgvi=1,
-            newton=mgsl.NewtonOptions(maxiter=k, xtol=0.0, adaptive_cg=False, cg=cgo),
+            newton=mgsl.NewtonOptions(
+                maxiter=k, xtol=0.0, adaptive_cg=False, cg=cgo, line_search="nifty"
+            ),
         )
         prob, st, rt = setup(lik, jnp.zeros(2), opts)
         x, _counts, _ = newton(prob, x0, deltas, tau, y, st, rt)
