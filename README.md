@@ -1,3 +1,13 @@
+<div align="center">
+
+[![Tests](https://img.shields.io/github/actions/workflow/status/TomHilder/mgsl/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/TomHilder/mgsl/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/mgsl?style=flat-square)](https://pypi.org/project/mgsl/)
+[![Python](https://img.shields.io/pypi/pyversions/mgsl?style=flat-square)](https://pypi.org/project/mgsl/)
+[![Docs](https://img.shields.io/github/actions/workflow/status/TomHilder/mgsl/docs.yml?branch=main&label=docs&style=flat-square)](https://tomhilder.github.io/mgsl/)
+[![License](https://img.shields.io/github/license/TomHilder/mgsl?style=flat-square)](https://github.com/TomHilder/mgsl/blob/main/LICENSE)
+
+</div>
+
 # mgsl
 
 `mgsl` is an implementation of the Metric Gaussian Stochastic Localisation (MGSL) algorithm,
