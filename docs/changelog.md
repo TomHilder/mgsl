@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-26
+
 ### Changed
 
 - The default line search is now `"armijo"` (`NewtonOptions(line_search=...)`); NIFTy.re's
