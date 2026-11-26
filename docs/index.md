@@ -1,24 +1,29 @@
 # mgsl
 
-**mgsl** draws approximate posterior samples with Metric Gaussian Stochastic Localisation
-(MGSL), in JAX. It returns `n_paths` independent samples, one per localisation path.
+`mgsl` is an implementation of the Metric Gaussian Stochastic Localisation (MGSL) algorithm,
+written in `jax`. Broadly, MGSL can be understood as a variational inference (VI) method that produces
+independent posterior samples. The appoximation to the posterior includes all correlations, and
+does _not_ assume any particular variational family. As such, MGSL is particularly well suited
+to massive-scale inference problems where the posterior is non-Gaussian, but still unimodal.
 
-Each path follows the observation process
-\(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\) of the unknown \(\mathbf{X}\), where
-\(\mathbf{W}_\tau\) is a standard Brownian motion and the observation time \(\tau\) grows until
-\(\mathbf{Y}_\tau / \tau\) pins \(\mathbf{X}\) down. Given \(\mathbf{Y}_\tau = \mathbf{y}\), the
+The algorithm operates by running localisation "paths". Each of these paths is independent, and produces
+a single posterior sample.
+
+In a a bit more detail, each path follows the observation process
+\(\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau\) where \(\mathbf{X} \sim p(\mathbf{x} \mid \mathbf{d})\) 
+is a currently unknown posterior sample, \(\mathbf{W}_\tau\) is a standard Brownian motion process. 
+The observation time \(\tau\) grows until \(\mathbf{Y}_\tau / \tau\) converges to \(\mathbf{X}\). 
+Given \(\mathbf{Y}_\tau = \mathbf{y}\), the
 unknown follows the *localising distribution*
 \(\pi_\tau(\mathbf{x} \mid \mathbf{y}) \propto p(\mathbf{x} \mid \mathbf{d})\,
-\mathcal N(\mathbf{y} \mid \tau \mathbf{x}, \tau \mathbf{I})\). At every step mgsl approximates it
-by a Gaussian found with a matrix-free MGVI fit, and advances \(\mathbf{y}\) as if
-\(\mathbf{X}\) were drawn from that Gaussian. For a linear model with Gaussian noise this is
-exact; otherwise the samples carry the error of the local Gaussian fits, which shrinks as
-\(\tau\) grows.
+\mathcal N(\mathbf{y} \mid \tau \mathbf{x}, \tau \mathbf{I})\). At every step `mgsl` approximates \(\pi_\tau\) 
+as a Gaussian, with parameters determined by a matrix-free MGVI fit, and then increments \(\mathbf{y}\) as if
+\(\mathbf{X}\) were drawn from that Gaussian.
 
-The latent must have a standard-normal prior (write the model in whitened coordinates; see
-the [user guide](guide.md#describing-the-problem)), and the likelihood must provide its Fisher
-metric, pulled back to the latent, as matrix-vector products. mgsl works with any JAX model,
-and with NIFTy.re models through an optional adaptor.
+The model must be setup in a particular way to use `mgsl`. Namely, the parameters must be a single
+vector with independent standard normal priors on all entries. Typically this is done by using transformations
+to obtain the priors of interest. The likelihood must also provide its Fisher metric in terms of matrix-vector
+products. `mgsl` can work with any `jax` model, and also works out-of-the-box with [`nifty.re`](https://github.com/nifty-ppl/nifty) models through a provided adaptor.
 
 ## Installation
 
@@ -28,11 +33,13 @@ pip install "git+https://github.com/TomHilder/mgsl.git"
 uv add "mgsl @ git+https://github.com/TomHilder/mgsl.git"
 ```
 
-Runtime dependency: JAX. NIFTy.re is only needed for `mgsl.nifty`.
+(or of course by ssh instead).
+
+`jax` is a runtime dependency. `nifty.re` is required if you wish to use the adaptor.
 
 ## Quick start
 
-A linear model with Gaussian noise, so the exact posterior is known:
+A simple linear model with Gaussian noise:
 
 ```python
 from dataclasses import replace
@@ -56,12 +63,12 @@ def forward(x):  # latent x ~ N(0, I) -> prediction of the data
 lik = mgsl.gaussian(forward, data, noise_std=sigma)
 
 options = mgsl.MGVIOptions(
-    n_samples_mgvi=4,  # residual draws per local fit (each used with its mirror image)
-    n_iter_mgvi=1,  # rounds of (draw residuals, Newton) per step
+    n_samples_mgvi=1,  # residual draws per local mgvi fit (doubled in practice via mirror samples)
+    n_iter_mgvi=1,  # mgvi rounds per localisation step: (draw residuals, Newton) per step
     newton=mgsl.NewtonOptions(maxiter=5),
 )
 
-# a centre to start the paths from: an MGVI fit of the posterior, with more rounds
+# Initialise from a longer MGVI fit
 fit = mgsl.mgvi_fit(jax.random.key(3), lik, jnp.zeros(n_latent), replace(options, n_iter_mgvi=10))
 
 schedule = mgsl.Schedule(n_paths=256, tau_start=1.0, tau_final=1e5, n_tau=32)
@@ -73,6 +80,8 @@ result.failures.totals()  # solver failure counts (always recorded)
 ```
 
 There are no defaults for the schedule or for the number of samples and rounds of the local
-fits: they depend on the problem, so every run states them. The [user
-guide](guide.md#choosing-the-settings) explains how to check them with the diagnostics, and
-covers NIFTy.re models, resuming runs, batches and devices, and the power-user options.
+fits: they depend on the problem. This is an active research project and we currently do not
+have a confident enough understanding of the algorithm to make many recommendations here.
+The [userguide](guide.md#choosing-the-settings) goes into some detail in terms of diagnostics
+however, and also covers `nifty.re` models, resuming runs, batches and devices, and power-user
+options.
