@@ -19,10 +19,11 @@ to massive-scale inference problems where the posterior is non-Gaussian, but sti
 Documentation: <https://tomhilder.github.io/mgsl/>
 
 > **Status: under heavy development.** MGSL is an in-progress research project, and this code
-> changes with it. Expect bugs, quirks, breaking changes and mistakes. Many properties of the
-> method are still unknown: there is no established way to choose the tuning parameters (the
-> number of observation-time steps, and the number of MGVI samples and iterations per step),
-> and essentially nothing is known yet about its error properties.
+> will certainly evolve. Expect bugs, quirks, breaking changes and mistakes. Many properties of
+> the method are still unknown: there is (currently) no principled way to choose the tuning
+> parameters (the number of observation-time steps, and the number of MGVI samples and
+> iterations per step). Essentially nothing is known yet about the error properties of the
+> posterior approximation.
 >
 > Please report bugs and problems through
 > [GitHub Issues](https://github.com/TomHilder/mgsl/issues), and get in touch before publishing
@@ -45,6 +46,22 @@ The model must be setup in a particular way to use `mgsl`. Namely, the parameter
 vector with independent standard normal priors on all entries. Typically this is done by using transformations
 to obtain the priors of interest. The likelihood must also provide its Fisher metric in terms of matrix-vector
 products. `mgsl` can work with any `jax` model, and also works out-of-the-box with [`nifty.re`](https://github.com/nifty-ppl/nifty) models through a provided adaptor.
+
+## Why MGSL
+
+- **No global variational family.** MGSL assumes no global family: it builds a global
+  approximation out of many local Gaussian fits, one per step along each localisation path. It
+  is designed for posteriors that are non-Gaussian.
+- **Scales linearly in dimension.** Every fit is implicit and matrix-free: we never build a dense
+  covariance matrix, and use only Jacobian-vector products and conjugate-gradient solves via the Fisher
+  metric. Like typical MGVI, we keep all correlations between parameters (full rank) at a cost only 
+  linear in the number of model parameters.
+- **Embarrassingly parallel.** Each sample comes from its own path, independent of all others. If you
+  have N GPUs (or CPU cores), you can run N samples simultaneously. If your model is cheap this can
+  be worth it on CPU, but generally for larger models it's better to do one sample at a time on CPU.
+
+The most noteworthy (known) limitations are that MGSL is still approximate, and that it cannot
+handle multimodal distributions.
 
 ## Installation
 

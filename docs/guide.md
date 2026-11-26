@@ -16,7 +16,7 @@
 - **No global variational family.** MGSL assumes no global family: it builds a global
   approximation out of many local Gaussian fits, one per step along each localisation path. It
   is designed for posteriors that are non-Gaussian.
-- **Scales linearly in dimension.** Every fit is implicit and matrix-free: we never builds a dense
+- **Scales linearly in dimension.** Every fit is implicit and matrix-free: we never build a dense
   covariance matrix, and use only Jacobian-vector products and conjugate-gradient solves via the Fisher
   metric. Like typical MGVI, we keep all correlations between parameters (full rank) at a cost only 
   linear in the number of model parameters.
@@ -24,7 +24,7 @@
   have N GPUs (or CPU cores), you can run N samples simultaneously. If your model is cheap this can
   be worth it on CPU, but generally for larger models it's better to do one sample at a time on CPU.
 
-The most noteworthy (known) limitations are that MGSL is still approximate, and that it does cannot
+The most noteworthy (known) limitations are that MGSL is still approximate, and that it cannot
 handle multimodal distributions.
 
 Notation: \(\mathbf{x}\) is the latent (dimension \(n\)), \(\mathbf{I}\) the
