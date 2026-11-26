@@ -22,13 +22,13 @@ The algorithm operates by running localisation "paths". Each of these paths is i
 a single posterior sample.
 
 In a bit more detail, each path follows the observation process
-$\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau$ where $\mathbf{X} \sim p(\mathbf{x} \mid \mathbf{d})$
-is a currently unknown posterior sample, $\mathbf{W}_\tau$ is a standard Brownian motion process.
-The observation time $\tau$ grows until $\mathbf{Y}_\tau / \tau$ converges to $\mathbf{X}$.
-Given $\mathbf{Y}_\tau = \mathbf{y}$, the unknown follows the *localising distribution*
-$\pi_\tau(\mathbf{x} \mid \mathbf{y}) \propto p(\mathbf{x} \mid \mathbf{d})\, \mathcal N(\mathbf{y} \mid \tau \mathbf{x}, \tau \mathbf{I})$.
-At every step `mgsl` approximates $\pi_\tau$ as a Gaussian, with parameters determined by a
-matrix-free MGVI fit, and then increments $\mathbf{y}$ as if $\mathbf{X}$ were drawn from that
+$`\mathbf{Y}_\tau = \tau \mathbf{X} + \mathbf{W}_\tau`$ where $`\mathbf{X} \sim p(\mathbf{x} \mid \mathbf{d})`$
+is a currently unknown posterior sample, $`\mathbf{W}_\tau`$ is a standard Brownian motion process.
+The observation time $`\tau`$ grows until $`\mathbf{Y}_\tau / \tau`$ converges to $`\mathbf{X}`$.
+Given $`\mathbf{Y}_\tau = \mathbf{y}`$, the unknown follows the *localising distribution*
+$`\pi_\tau(\mathbf{x} \mid \mathbf{y}) \propto p(\mathbf{x} \mid \mathbf{d})\, \mathcal N(\mathbf{y} \mid \tau \mathbf{x}, \tau \mathbf{I})`$.
+At every step `mgsl` approximates $`\pi_\tau`$ as a Gaussian, with parameters determined by a
+matrix-free MGVI fit, and then increments $`\mathbf{y}`$ as if $`\mathbf{X}`$ were drawn from that
 Gaussian.
 
 The model must be setup in a particular way to use `mgsl`. Namely, the parameters must be a single
