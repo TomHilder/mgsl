@@ -1,5 +1,6 @@
 site_name: mgsl
 site_description: Metric Gaussian Stochastic Localisation in JAX
+site_url: https://tomhilder.github.io/mgsl/
 repo_url: https://github.com/TomHilder/mgsl
 repo_name: TomHilder/mgsl
 

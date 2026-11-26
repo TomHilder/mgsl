@@ -48,6 +48,9 @@ venvPath = "."
 venv = ".venv"
 extraPaths = ["tests"]
 
+[tool.uv]
+default-groups = ["dev", "examples"]
+
 [tool.uv.sources]
 nifty = { path = "../nifty", editable = true }
 
@@ -59,4 +62,11 @@ dev = [
     "mkdocstrings[python]>=0.26",
     "nifty",
     "scipy>=1.17.1",
+]
+examples = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "matplotlib-inline>=0.2.2",
+    "nbconvert>=7.17.2",
+    "nbformat>=5.11.1",
 ]

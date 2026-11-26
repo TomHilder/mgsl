@@ -46,6 +46,11 @@ result = mgsl.sample(key2, lik, fit.mean, schedule, options)
 
 Install with `uv add "mgsl @ git+ssh://git@github.com/TomHilder/mgsl.git"`. A runnable quick
 start, the user guide and the API reference are in `docs/` (`uv run mkdocs serve`).
+Example notebooks are in `examples/`.
+
+## Citation
+
+Coming soon.
 
 ## Development
 
