@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-26
+
+First public release.
+
 ### Changed
 
 - Licence: GNU General Public License v3.0 or later (was MIT).
@@ -18,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 - README: installation over HTTPS, documentation link, related work, licence, and how to
   report problems.
 - Package metadata: project URLs, classifiers, keywords; `py.typed` marker.
+- Documentation published at <https://tomhilder.github.io/mgsl/>; the home page, user guide
+  and examples rewritten, and the README follows the documentation's home page.
 
 ## [0.0.2] - 2026-11-26
 
