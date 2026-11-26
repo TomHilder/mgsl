@@ -1368,6 +1368,7 @@ dev = [
 examples = [
     { name = "ipykernel" },
     { name = "matplotlib" },
+    { name = "matplotlib-inline" },
     { name = "nbconvert" },
     { name = "nbformat" },
 ]
@@ -1390,6 +1391,7 @@ dev = [
 examples = [
     { name = "ipykernel", specifier = ">=7.4.0" },
     { name = "matplotlib", specifier = ">=3.11.2" },
+    { name = "matplotlib-inline", specifier = ">=0.2.2" },
     { name = "nbconvert", specifier = ">=7.17.2" },
     { name = "nbformat", specifier = ">=5.11.1" },
 ]
