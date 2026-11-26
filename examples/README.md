@@ -5,9 +5,9 @@
 - `02_binary_field.ipynb`: a 1D Gaussian-process field observed only through binary (probit)
   labels, with the likelihood written by hand.
 
-To run them:
+To run them, `uv sync` (the `examples` dependency group, with matplotlib and ipykernel, is
+installed by default), then open a notebook with the repository's `.venv` as its kernel, or:
 
 ```sh
-uv sync --group examples
-uv run --group examples --with jupyterlab jupyter lab examples/   # or open them in your editor
+uv run --with jupyterlab jupyter lab examples/
 ```

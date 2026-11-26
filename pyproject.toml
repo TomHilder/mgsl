@@ -48,6 +48,9 @@ venvPath = "."
 venv = ".venv"
 extraPaths = ["tests"]
 
+[tool.uv]
+default-groups = ["dev", "examples"]
+
 [tool.uv.sources]
 nifty = { path = "../nifty", editable = true }
 
